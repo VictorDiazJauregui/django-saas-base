@@ -70,4 +70,3 @@ class AuditLogAdmin(admin.ModelAdmin):
         return format_html("<pre style='white-space: pre-wrap;'>{}</pre>", pretty)
 
     pretty_payload.short_description = "Payload (formateado)"
-

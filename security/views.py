@@ -13,6 +13,7 @@ class UserRegisterView(generics.CreateAPIView):
     """
     API view for user registration.
     """
+
     queryset = User.objects.all()
     permission_classes = (AllowAny,)
     serializer_class = UserRegisterSerializer
@@ -24,14 +25,15 @@ class CustomLoginView(TokenObtainPairView):
     After a successful login, it attaches the authenticated user to the request
     so the AuditMiddleware can log which user performed the login action.
     """
+
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
 
         if response.status_code == 200:
             try:
-                access_token = response.data.get('access')
+                access_token = response.data.get("access")
                 token = AccessToken(access_token)
-                user_id = token.payload.get('user_id')
+                user_id = token.payload.get("user_id")
                 user = User.objects.get(id=user_id)
                 # Attach user to the original Django request for the audit middleware
                 request._request.user_for_audit = user

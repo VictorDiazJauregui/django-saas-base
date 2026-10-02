@@ -19,6 +19,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [Actualizar desde PostgreSQL 15](#actualizar-desde-postgresql-15)
 - [Renombrar el proyecto](#renombrar-el-proyecto)
 - [Internacionalización](#internacionalización)
+- [Licencia](#licencia)
 
 ---
 
@@ -517,3 +518,9 @@ El proyecto está preparado para inglés y español.
    Sin `--ignore`, Django recorre también el entorno virtual y vuelve a compilar los miles de catálogos de las librerías instaladas.
 
 `makemessages` y `compilemessages` necesitan `gettext` instalado en el sistema. En Windows, ver [gettext en Windows](https://docs.djangoproject.com/es/5.2/topics/i18n/translation/#gettext-on-windows).
+
+---
+
+## Licencia
+
+Distribuido bajo la licencia MIT. El texto completo está en [LICENSE](LICENSE).

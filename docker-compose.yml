@@ -1,16 +1,24 @@
+name: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME in the .env file}
+
 services:
   db:
-    image: postgres:15-alpine
-    container_name: saas_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data/
+    image: postgres:18-alpine
+    container_name: ${DB_CONTAINER_NAME:?Set DB_CONTAINER_NAME in the .env file}
     environment:
-      - POSTGRES_DB=${DB_NAME}
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:?Set DB_NAME in the .env file}
+      POSTGRES_USER: ${DB_USER:?Set DB_USER in the .env file}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the .env file}
     ports:
-      # Exposes the container's port 5432 to your local machine's port 5432
-      - "5432:5432"
+      - "127.0.0.1:${DB_PORT:?Set DB_PORT in the .env file}:5432"
+    volumes:
+      # postgres:18+ keeps its data under a per-major-version subdirectory, so the
+      # volume must target the parent path: mounting .../data does not persist.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   postgres_data:

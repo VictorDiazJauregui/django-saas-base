@@ -1,15 +1,54 @@
 import json
 
 from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
 
+from .forms import EmailUserChangeForm, EmailUserCreationForm
 from .models import AuditLog
+
+User = get_user_model()
+
+EMPTY_PAYLOAD_LABEL = "-"
+SHORT_PAYLOAD_MAX_LENGTH = 75
+TRUNCATION_SUFFIX = "..."
+PERMISSION_FIELDS = (
+    "is_active",
+    "is_staff",
+    "is_superuser",
+    "groups",
+    "user_permissions",
+)
+
+
+@admin.register(User)
+class UserAdmin(BaseUserAdmin):
+    form = EmailUserChangeForm
+    add_form = EmailUserCreationForm
+    ordering = ("email",)
+    list_display = ("email", "first_name", "last_name", "is_staff", "is_active")
+    search_fields = ("email", "first_name", "last_name")
+    fieldsets = (
+        (None, {"fields": ("email", "password")}),
+        (_("Personal info"), {"fields": ("first_name", "last_name")}),
+        (_("Permissions"), {"fields": PERMISSION_FIELDS}),
+        (_("Important dates"), {"fields": ("last_login", "date_joined")}),
+    )
+    add_fieldsets = (
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": ("email", "usable_password", "password1", "password2"),
+            },
+        ),
+    )
 
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    """Admin para AuditLog: vista en tabla con búsqueda y detalle con payload formateado."""
-
     list_display = (
         "timestamp",
         "user",
@@ -50,23 +89,21 @@ class AuditLogAdmin(admin.ModelAdmin):
         "pretty_payload",
     )
 
+    @admin.display(description="Payload")
     def short_payload(self, obj):
-        """Muestra una versión truncada del payload en la vista de lista."""
         if not obj.payload:
-            return "-"
-        s = json.dumps(obj.payload, ensure_ascii=False)
-        return s if len(s) <= 75 else s[:72] + "..."
+            return EMPTY_PAYLOAD_LABEL
+        serialized_payload = json.dumps(obj.payload, ensure_ascii=False)
+        if len(serialized_payload) <= SHORT_PAYLOAD_MAX_LENGTH:
+            return serialized_payload
+        visible_length = SHORT_PAYLOAD_MAX_LENGTH - len(TRUNCATION_SUFFIX)
+        return serialized_payload[:visible_length] + TRUNCATION_SUFFIX
 
-    short_payload.short_description = "Payload"
-
+    @admin.display(description="Payload (formatted)")
     def pretty_payload(self, obj):
-        """Muestra el payload como JSON formateado en la vista detalle."""
         if not obj.payload:
-            return "-"
-        try:
-            pretty = json.dumps(obj.payload, indent=2, ensure_ascii=False)
-        except Exception:
-            pretty = str(obj.payload)
-        return format_html("<pre style='white-space: pre-wrap;'>{}</pre>", pretty)
-
-    pretty_payload.short_description = "Payload (formateado)"
+            return EMPTY_PAYLOAD_LABEL
+        formatted_payload = json.dumps(obj.payload, indent=2, ensure_ascii=False)
+        return format_html(
+            "<pre style='white-space: pre-wrap;'>{}</pre>", formatted_payload
+        )

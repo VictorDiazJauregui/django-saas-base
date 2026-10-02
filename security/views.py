@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .serializers import UserRegisterSerializer
 
@@ -28,23 +29,13 @@ class CustomLoginView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-
-        if response.status_code == 200:
-            try:
-                access_token = response.data.get("access")
-                token = AccessToken(access_token)
-                user_id = token.payload.get("user_id")
-                user = User.objects.get(id=user_id)
-                # Attach user to the original Django request for the audit middleware
-                request._request.user_for_audit = user
-            except Exception:
-                # If anything goes wrong, we just don't attach the user.
-                # The audit log will record the user as anonymous, but it won't crash.
-                request._request.user_for_audit = None
-
+        if response.status_code == status.HTTP_200_OK:
+            request._request.user_for_audit = self.find_token_owner(response)
         return response
 
-
-# Note: Password recovery views are not implemented here but can be added.
-# Django's built-in 'django.contrib.auth.views' can be used for this,
-# or you can use a library like 'django-rest-passwordreset'.
+    def find_token_owner(self, response):
+        try:
+            token = AccessToken(response.data.get("access"))
+            return User.objects.get(id=token.payload.get("user_id"))
+        except (TokenError, User.DoesNotExist):
+            return None

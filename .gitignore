@@ -56,6 +56,7 @@ coverage.xml
 *.log
 local_settings.py
 db.sqlite3
+staticfiles/
 
 # Flask stuff:
 instance/
@@ -77,9 +78,6 @@ target/
 profile_default/
 ipython_config.py
 
-# pyenv
-.python-version
-
 # dotenv
 .env
 
@@ -97,6 +95,4 @@ docker-compose.override.yml
 
 # Custom
 .venv/
-
-.vscode 
 .env.local

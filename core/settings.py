@@ -2,8 +2,10 @@
 Django settings for the saas_boilerplate project.
 """
 
-import environ
+from importlib.util import find_spec
 from pathlib import Path
+
+import environ
 from django.utils.translation import gettext_lazy as _
 
 # Initialize django-environ
@@ -27,9 +29,13 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"] if DEBUG else ["localhost"])
 
+APP_PORT = env.str("APP_PORT", default="8000")
+
 
 # --- Application Definition ---
 INSTALLED_APPS = [
+    # Listed first so its runserver command overrides the staticfiles one.
+    "core",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -39,10 +45,12 @@ INSTALLED_APPS = [
     # Third-party apps
     "rest_framework",
     "rest_framework_simplejwt",
-    "django_extensions",
     # Local apps
     "security.apps.SecurityConfig",
 ]
+
+OPTIONAL_DEVELOPMENT_APPS = ["django_extensions"]
+INSTALLED_APPS += [app for app in OPTIONAL_DEVELOPMENT_APPS if find_spec(app)]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -105,6 +113,8 @@ AUTH_PASSWORD_VALIDATORS = [
 # --- Custom User Model ---
 AUTH_USER_MODEL = "security.User"
 
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
 
 # --- Internationalization (i18n) ---
 # https://docs.djangoproject.com/en/stable/topics/i18n/
@@ -118,7 +128,6 @@ LOCALE_PATHS = [
 ]
 TIME_ZONE = "UTC"
 USE_I18N = True
-USE_L10N = True  # Deprecated in Django 5.0, but good practice to be explicit
 USE_TZ = True
 
 
@@ -137,12 +146,5 @@ REST_FRAMEWORK = {
 }
 
 # --- Production Settings ---
-# Load production settings if ENVIRONMENT is set to 'prod'
 if env("ENVIRONMENT") == "prod":
     DEBUG = False
-    # Add production-specific settings here
-    # For example:
-    # SECURE_SSL_REDIRECT = True
-    # SECURE_HSTS_SECONDS = 31536000
-    # SESSION_COOKIE_SECURE = True
-    # CSRF_COOKIE_SECURE = True

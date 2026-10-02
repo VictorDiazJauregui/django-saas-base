@@ -1,5 +1,24 @@
+import ipaddress
 import json
+
 from .models import AuditLog
+from .redaction import redact_sensitive_values
+
+BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
+AUDITED_METHODS = BODY_METHODS | {"DELETE"}
+JSON_CONTENT_TYPE = "application/json"
+
+
+def truncate_to_column_length(field_name, value):
+    max_length = AuditLog._meta.get_field(field_name).max_length
+    return value[:max_length]
+
+
+def parse_ip_address(candidate):
+    try:
+        return str(ipaddress.ip_address(candidate.strip()))
+    except ValueError:
+        return None
 
 
 class AuditMiddleware:
@@ -7,64 +26,46 @@ class AuditMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # For POST/PUT/PATCH, we read the body before it's consumed by the view.
-        # This allows us to log it later without causing a RawPostDataException.
-        body_for_log = {}
-        if request.method in ["POST", "PUT", "PATCH"]:
-            try:
-                if request.content_type == "application/json":
-                    body_for_log = json.loads(request.body)
-                    # We keep a copy of the raw body in case the stream is consumed.
-                    # This allows the view to re-read it if necessary.
-                    request._body = request.body
-            except (json.JSONDecodeError, AttributeError):
-                pass  # Ignore if body is not valid JSON or not present
-
+        # The body is read before the view runs: once the view consumes the stream
+        # it can no longer be read.
+        payload = self.read_json_payload(request)
         response = self.get_response(request)
-
-        # After the view has been processed, we log the request.
-        if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
-            # Check if the view attached a user for us (for login events)
-            user = getattr(request, "user_for_audit", None)
-            # If not, use the standard authenticated user
-            if user is None and request.user.is_authenticated:
-                user = request.user
-
-            # Redact sensitive data from the cached body
-            payload = self.redact_sensitive_data(body_for_log)
-
-            AuditLog.objects.create(
-                user=user,
-                ip_address=self.get_client_ip(request),
-                user_agent=request.META.get("HTTP_USER_AGENT", ""),
-                method=request.method,
-                path=request.path,
-                payload=payload,
-            )
-
+        if request.method in AUDITED_METHODS:
+            self.record_request(request, payload)
         return response
 
+    def read_json_payload(self, request):
+        if request.method not in BODY_METHODS:
+            return {}
+        if request.content_type != JSON_CONTENT_TYPE:
+            return {}
+        try:
+            return json.loads(request.body)
+        except ValueError:
+            return {}
+
+    def record_request(self, request, payload):
+        user_agent = request.META.get("HTTP_USER_AGENT", "")
+        AuditLog.objects.create(
+            user=self.resolve_user(request),
+            ip_address=self.get_client_ip(request),
+            user_agent=truncate_to_column_length("user_agent", user_agent),
+            method=request.method,
+            path=truncate_to_column_length("path", request.path),
+            payload=redact_sensitive_values(payload),
+        )
+
+    def resolve_user(self, request):
+        user_for_audit = getattr(request, "user_for_audit", None)
+        if user_for_audit is not None:
+            return user_for_audit
+        if request.user.is_authenticated:
+            return request.user
+        return None
+
     def get_client_ip(self, request):
-        """Get client IP address from the request."""
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(",")[0]
-        else:
-            ip = request.META.get("REMOTE_ADDR")
-        return ip
-
-    def redact_sensitive_data(self, payload):
-        """Recursively redact sensitive keys from a dictionary."""
-        if not isinstance(payload, dict):
-            return payload
-
-        sensitive_keys = ["password", "token", "secret", "access", "refresh"]
-        clean_payload = payload.copy()
-
-        for key, value in clean_payload.items():
-            if key in sensitive_keys:
-                clean_payload[key] = "[REDACTED]"
-            elif isinstance(value, dict):
-                clean_payload[key] = self.redact_sensitive_data(value)
-
-        return clean_payload
+        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        forwarded_address = parse_ip_address(forwarded_for.split(",")[0])
+        if forwarded_address is not None:
+            return forwarded_address
+        return parse_ip_address(request.META.get("REMOTE_ADDR", ""))

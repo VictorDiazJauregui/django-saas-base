@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Format, lockfile and tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: ci_db
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username=ci_user --dbname=ci_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ENVIRONMENT: ci
+      SECRET_KEY: ci-only-secret-key-not-used-anywhere-else
+      DEBUG: "False"
+      DB_NAME: ci_db
+      DB_USER: ci_user
+      DB_PASSWORD: ci_password
+      DB_HOST: localhost
+      DB_PORT: "5432"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # setup-uv only publishes full version tags; there is no floating v10 tag.
+      # Without python-version, uv uses the version in .python-version.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Check the lockfile matches pyproject.toml
+        run: uv lock --check
+
+      - name: Check the requirements files match the lockfile
+        run: |
+          uv export --no-dev --no-hashes --quiet -o requirements.txt
+          uv export --no-hashes --quiet -o requirements-dev.txt
+          git diff --exit-code -- requirements.txt requirements-dev.txt
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Format
+        run: uv run black --check .
+
+      - name: Missing migrations
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        run: uv run python manage.py test

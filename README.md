@@ -1,69 +1,72 @@
 # SaaS Base · Django + PostgreSQL
 
-Base de backend lista para empezar un proyecto: Django y Django REST Framework corren en tu máquina, y PostgreSQL corre en Docker. Todo lo que identifica a un proyecto (nombres, credenciales y puertos) vive en un archivo `.env`, así que podés clonar la base tantas veces como quieras en la misma máquina sin que un proyecto pise a otro.
+[English](README.md) · [Español](README.es.md)
 
-Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
+Backend base to start a project from: Django and Django REST Framework run on your machine, and PostgreSQL runs in Docker. Everything that identifies a project (names, credentials and ports) lives in a `.env` file, so you can clone the base as many times as you want on the same machine without one project stepping on another.
 
-## Contenido
+It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 
-- [Qué incluye](#qué-incluye)
-- [Requisitos](#requisitos)
-- [Puesta en marcha](#puesta-en-marcha)
-- [Guía por sistema](#guía-por-sistema)
-- [Variables de entorno](#variables-de-entorno)
-- [Varios proyectos en la misma máquina](#varios-proyectos-en-la-misma-máquina)
+## Contents
+
+- [What it includes](#what-it-includes)
+- [Requirements](#requirements)
+- [Getting started](#getting-started)
+- [Setup by operating system](#setup-by-operating-system)
+- [Environment variables](#environment-variables)
+- [Several projects on the same machine](#several-projects-on-the-same-machine)
 - [API](#api)
-- [Dependencias](#dependencias)
-- [Pruebas y formato](#pruebas-y-formato)
-- [Solución de problemas](#solución-de-problemas)
-- [Actualizar desde PostgreSQL 15](#actualizar-desde-postgresql-15)
-- [Renombrar el proyecto](#renombrar-el-proyecto)
-- [Internacionalización](#internacionalización)
-- [Licencia](#licencia)
+- [Dependencies](#dependencies)
+- [Tests and formatting](#tests-and-formatting)
+- [Troubleshooting](#troubleshooting)
+- [Upgrading from PostgreSQL 15](#upgrading-from-postgresql-15)
+- [Renaming the project](#renaming-the-project)
+- [Internationalization](#internationalization)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## Qué incluye
+## What it includes
 
-- **Django 5.2 LTS** y **Django REST Framework**, con autenticación **JWT**.
-- **PostgreSQL 18** en Docker Compose, configurado por variables.
-- **Usuario personalizado** que inicia sesión con su email.
-- **Auditoría:** cada petición que modifica datos queda registrada, con los datos sensibles censurados.
-- **Panel de administración** con gestión de usuarios y consulta de la auditoría.
-- **Internacionalización** preparada para inglés y español.
-- **Pruebas automáticas** de la API, la auditoría y el panel.
+- **Django 5.2 LTS** and **Django REST Framework**, with **JWT** authentication.
+- **PostgreSQL 18** in Docker Compose, configured through variables.
+- **Custom user** that logs in with an email.
+- **Audit log:** every request that changes data is recorded, with sensitive values redacted.
+- **Admin panel** to manage users and browse the audit log.
+- **Internationalization** ready for English and Spanish.
+- **Automated tests** for the API, the audit log and the admin.
 
 ---
 
-## Requisitos
+## Requirements
 
-| Herramienta | Versión | Para qué |
+| Tool | Version | Used for |
 |---|---|---|
-| Python | 3.12 o superior (recomendada: 3.12) | Ejecutar Django |
-| [uv](https://docs.astral.sh/uv/getting-started/installation/) | Actual | Crear el entorno e instalar dependencias (recomendado). También podés usar `pip` |
-| Docker con Compose v2 | Actual | Ejecutar PostgreSQL |
-| Git | Actual | Clonar el repositorio |
+| Python | 3.12 or later (recommended: 3.12) | Running Django |
+| [uv](https://docs.astral.sh/uv/getting-started/installation/) | Current | Creating the environment and installing dependencies (recommended). `pip` works too |
+| Docker with Compose v2 | Current | Running PostgreSQL |
+| Git | Current | Cloning the repository |
 
-Cómo instalar cada una según tu sistema: ver [Guía por sistema](#guía-por-sistema).
+How to install each one on your system: see [Setup by operating system](#setup-by-operating-system).
 
-> Con `uv` no hace falta instalar Python a mano: si no encuentra la versión indicada en `.python-version`, la descarga solo.
+> With `uv` you don't need to install Python yourself: if it can't find the version set in `.python-version`, it downloads it.
 
 ---
 
-## Puesta en marcha
+## Getting started
 
-Son seis pasos. Cuando un comando cambia según la terminal, se muestran las tres variantes.
+Six steps. When a command differs between terminals, all three variants are shown. For a short runbook with the ports, the health checks and the common errors, see [LOCAL-SETUP.md](LOCAL-SETUP.md).
 
-### 1. Clonar
+### 1. Clone
 
 ```bash
-git clone <URL_DEL_REPOSITORIO> mi-proyecto
-cd mi-proyecto
+git clone <REPOSITORY_URL> my-project
+cd my-project
 ```
 
-### 2. Crear tu archivo `.env`
+### 2. Create your `.env` file
 
-El repositorio solo trae `.env.example`. Tu `.env` es una copia que no se versiona.
+The repository only ships `.env.example`. Your `.env` is a copy that is not versioned.
 
 **bash / zsh (Linux, WSL)**
 
@@ -83,74 +86,74 @@ Copy-Item .env.example .env
 copy .env.example .env
 ```
 
-Abrí `.env` con tu editor y cambiá, como mínimo:
+Open `.env` in your editor and change at least:
 
-| Variable | Qué poner |
+| Variable | What to set |
 |---|---|
-| `COMPOSE_PROJECT_NAME` | Un nombre único para este proyecto, en minúsculas (por ejemplo `tienda`) |
-| `DB_CONTAINER_NAME` | Un nombre único para el contenedor (por ejemplo `tienda_db`) |
-| `DB_NAME`, `DB_USER` | El nombre de la base y de su usuario |
-| `DB_PASSWORD`, `ADMIN_PASSWORD` | Contraseñas propias |
-| `SECRET_KEY` | Una clave generada (ver abajo) |
-| `DB_PORT`, `APP_PORT` | Dejá `5432` y `8000`, salvo que ya estén en uso |
+| `COMPOSE_PROJECT_NAME` | A unique, lowercase name for this project (for example `shop`) |
+| `DB_CONTAINER_NAME` | A unique name for the container (for example `shop_db`) |
+| `DB_NAME`, `DB_USER` | The database name and its user |
+| `DB_PASSWORD`, `ADMIN_PASSWORD` | Your own passwords |
+| `SECRET_KEY` | A generated key (see below) |
+| `DB_PORT`, `APP_PORT` | Keep `5432` and `8000` unless they are already taken |
 
-Para generar una clave o una contraseña segura, el mismo comando sirve en cualquier terminal:
+To generate a key or a strong password, the same command works in any terminal:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
-> En Windows, si `python` no se reconoce, usá `py` en su lugar. Con `uv`, anteponé `uv run`.
+> On Windows, if `python` is not recognized, use `py` instead. With `uv`, prefix it with `uv run`.
 
-> **Evitá `$` y `#` en los valores.** Docker Compose interpreta `$` como referencia a otra variable y un `#` precedido de un espacio como comentario, y recorta el valor; Django, en cambio, lo lee entero. Los dos terminan con valores distintos. El comando anterior solo produce caracteres seguros.
+> **Avoid `$` and `#` in the values.** Docker Compose reads `$` as a reference to another variable and a `#` after a space as a comment, and cuts the value there; Django reads the whole value. The two end up with different values. The command above only produces safe characters.
 
-### 3. Levantar la base de datos
+### 3. Start the database
 
 ```bash
 docker compose up -d --wait
 ```
 
-`--wait` espera a que PostgreSQL esté listo para aceptar conexiones.
+`--wait` waits until PostgreSQL accepts connections.
 
-**Cómo llegan tus variables a Docker Compose.** Compose lee de forma automática el archivo `.env` que está junto a `docker-compose.yml` y reemplaza cada `${VARIABLE}` del archivo. No hay que exportar nada ni pasar opciones. Para ver exactamente qué entendió:
+**How your variables reach Docker Compose.** Compose automatically reads the `.env` file next to `docker-compose.yml` and replaces every `${VARIABLE}` in the file. There is nothing to export and no option to pass. To see exactly what it understood:
 
 ```bash
 docker compose config
 ```
 
-Si falta una variable, Compose se detiene y la nombra:
+If a variable is missing, Compose stops and names it:
 
 ```text
 required variable COMPOSE_PROJECT_NAME is missing a value: Set COMPOSE_PROJECT_NAME in the .env file
 ```
 
-Si preferís que Compose use un archivo con otro nombre, indicalo en cada comando:
+If you want Compose to use a file with another name, pass it on every command:
 
 ```bash
-docker compose --env-file .env.otro up -d --wait
+docker compose --env-file .env.other up -d --wait
 ```
 
-Tené en cuenta que **Django siempre lee `.env`**, así que ese archivo alternativo solo afecta a Compose.
+Keep in mind that **Django always reads `.env`**, so that alternative file only affects Compose.
 
-Las variables que ya existan en tu terminal tienen prioridad sobre las del `.env`, tanto para Compose como para Django.
+Variables already set in your terminal take precedence over the ones in `.env`, for both Compose and Django.
 
-### 4. Crear el entorno de Python
+### 4. Create the Python environment
 
-Elegí **una** de las dos opciones.
+Pick **one** of the two options.
 
-#### Opción A · uv (recomendada)
+#### Option A · uv (recommended)
 
-Igual en todas las terminales, y no hay que activar nada:
+Same command in every terminal, and nothing to activate:
 
 ```bash
 uv sync
 ```
 
-Crea la carpeta `.venv` e instala las versiones exactas que fija `uv.lock`. Para instalar solo lo necesario en producción: `uv sync --no-dev`.
+It creates the `.venv` folder and installs the exact versions pinned in `uv.lock`. To install only what production needs: `uv sync --no-dev`.
 
-A partir de acá, anteponé `uv run` a cada comando de Python.
+From here on, prefix every Python command with `uv run`.
 
-#### Opción B · pip + venv
+#### Option B · pip + venv
 
 **bash / zsh (Linux, WSL)**
 
@@ -169,7 +172,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 python -m pip install -r requirements-dev.txt
 ```
 
-La línea `Set-ExecutionPolicy` es necesaria porque PowerShell, por omisión, no permite ejecutar scripts, y activar el entorno es ejecutar uno. Con `-Scope Process` el permiso vale solo para esa ventana.
+The `Set-ExecutionPolicy` line is needed because PowerShell does not allow running scripts by default, and activating the environment runs one. With `-Scope Process` the permission only applies to that window.
 
 **cmd**
 
@@ -179,11 +182,11 @@ py -3.12 -m venv .venv
 python -m pip install -r requirements-dev.txt
 ```
 
-Si tenés otra versión de Python (3.13, por ejemplo), cambiá `3.12` por la tuya. Para instalar solo lo necesario en producción, usá `requirements.txt`.
+If you have another Python version (3.13, for example), replace `3.12` with yours. To install only what production needs, use `requirements.txt`.
 
-### 5. Preparar la base y arrancar
+### 5. Prepare the database and start
 
-Con **uv**:
+With **uv**:
 
 ```bash
 uv run python manage.py migrate
@@ -191,7 +194,7 @@ uv run python manage.py create_admin_auto
 uv run python manage.py runserver
 ```
 
-Con **pip + venv** (entorno activado):
+With **pip + venv** (environment activated):
 
 ```bash
 python manage.py migrate
@@ -199,301 +202,301 @@ python manage.py create_admin_auto
 python manage.py runserver
 ```
 
-- `migrate` crea las tablas.
-- `create_admin_auto` crea el superusuario con `ADMIN_EMAIL` y `ADMIN_PASSWORD`. Se puede ejecutar más de una vez sin duplicarlo.
-- `runserver` usa el puerto de `APP_PORT`. Para un puerto puntual, escribilo: `runserver 9000`.
+- `migrate` creates the tables.
+- `create_admin_auto` creates the superuser from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Running it again does not duplicate it.
+- `runserver` uses the port in `APP_PORT`. For a one-off port, pass it: `runserver 9000`.
 
-### 6. Comprobar
+### 6. Check it works
 
-Con los valores por omisión:
+With the default values:
 
-- Panel de administración: <http://localhost:8000/admin/>
-- API de autenticación: <http://localhost:8000/api/v1/auth/>
+- Admin panel: <http://localhost:8000/admin/>
+- Authentication API: <http://localhost:8000/api/v1/auth/>
 
-Para probar el inicio de sesión desde la terminal:
+To try the login from the terminal:
 
 **bash / zsh**
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/login/ \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@example.com", "password": "TU_CONTRASEÑA"}'
+  -d '{"email": "admin@example.com", "password": "YOUR_PASSWORD"}'
 ```
 
 **PowerShell**
 
 ```powershell
-$body = @{ email = "admin@example.com"; password = "TU_CONTRASEÑA" } | ConvertTo-Json
+$body = @{ email = "admin@example.com"; password = "YOUR_PASSWORD" } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/auth/login/ -ContentType "application/json" -Body $body
 ```
 
 **cmd**
 
 ```bat
-curl -X POST http://localhost:8000/api/v1/auth/login/ -H "Content-Type: application/json" -d "{\"email\": \"admin@example.com\", \"password\": \"TU_CONTRASEÑA\"}"
+curl -X POST http://localhost:8000/api/v1/auth/login/ -H "Content-Type: application/json" -d "{\"email\": \"admin@example.com\", \"password\": \"YOUR_PASSWORD\"}"
 ```
 
-La respuesta trae dos tokens: `access` y `refresh`.
+The response has two tokens: `access` and `refresh`.
 
-### Apagar
+### Shutting down
 
-- El servidor: `Ctrl + C`.
-- La base, **conservando los datos**: `docker compose down`
-- La base, **borrando los datos**: `docker compose down -v`
+- The server: `Ctrl + C`.
+- The database, **keeping the data**: `docker compose down`
+- The database, **deleting the data**: `docker compose down -v`
 
 ---
 
-## Guía por sistema
+## Setup by operating system
 
 ### Linux
 
-1. **Docker Engine y Compose:** [instalación en Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (la misma página enlaza a otras distribuciones) y los [pasos posteriores](https://docs.docker.com/engine/install/linux-postinstall/) para usar Docker sin `sudo`.
+1. **Docker Engine and Compose:** [install on Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (the same page links to other distributions) and the [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/) to use Docker without `sudo`.
 2. **uv:**
 
    ```bash
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
-   Cerrá y volvé a abrir la terminal para que quede disponible.
-3. Seguí la [Puesta en marcha](#puesta-en-marcha) con las variantes **bash / zsh**.
+   Close and reopen the terminal so it is on the `PATH`.
+3. Follow [Getting started](#getting-started) with the **bash / zsh** variants.
 
-Si preferís administrar las versiones de Python por tu cuenta, [pyenv](https://github.com/pyenv/pyenv) reconoce el archivo `.python-version` del proyecto.
+If you prefer to manage Python versions yourself, [pyenv](https://github.com/pyenv/pyenv) picks up the project's `.python-version` file.
 
 ### WSL
 
-WSL es Linux dentro de Windows: una vez instalado, todo se hace igual que en Linux.
+WSL is Linux inside Windows: once installed, everything works as on Linux.
 
-1. **Instalar WSL** desde PowerShell como administrador y reiniciar ([guía oficial](https://learn.microsoft.com/es-es/windows/wsl/install)):
+1. **Install WSL** from PowerShell as administrator and restart ([official guide](https://learn.microsoft.com/en-us/windows/wsl/install)):
 
    ```powershell
    wsl --install
    ```
 
-2. **Clonar dentro del sistema de archivos de Linux** (por ejemplo en `~/proyectos`), no en `/mnt/c/...`. Trabajar sobre el disco de Windows desde WSL es mucho más lento y mezcla los finales de línea. Más detalle en [Trabajar entre sistemas de archivos](https://learn.microsoft.com/es-es/windows/wsl/filesystems).
-3. **Docker**, de una de dos formas:
-   - **Docker Desktop** en Windows con la integración de WSL activada (*Settings → Resources → WSL integration*). Ver [Docker Desktop con WSL 2](https://docs.docker.com/desktop/features/wsl/).
-   - **Docker Engine** instalado dentro de la distribución, como en Linux.
+2. **Clone inside the Linux file system** (for example in `~/projects`), not under `/mnt/c/...`. Working on the Windows disk from WSL is much slower and mixes line endings. More in [Working across file systems](https://learn.microsoft.com/en-us/windows/wsl/filesystems).
+3. **Docker**, in one of two ways:
+   - **Docker Desktop** on Windows with the WSL integration turned on (*Settings → Resources → WSL integration*). See [Docker Desktop WSL 2 backend](https://docs.docker.com/desktop/features/wsl/).
+   - **Docker Engine** installed inside the distribution, as on Linux.
 
-   Usá una sola: tener las dos a la vez genera conflictos.
-4. Seguí la [Puesta en marcha](#puesta-en-marcha) con las variantes **bash / zsh**.
+   Use only one: having both at once causes conflicts.
+4. Follow [Getting started](#getting-started) with the **bash / zsh** variants.
 
-El servidor que levantes en WSL se abre desde el navegador de Windows en `http://localhost:8000`. Si no responde, revisá [Acceso a aplicaciones de red con WSL](https://learn.microsoft.com/es-es/windows/wsl/networking).
+A server started in WSL opens from the Windows browser at `http://localhost:8000`. If it does not respond, check [Accessing network applications with WSL](https://learn.microsoft.com/en-us/windows/wsl/networking).
 
 ### Windows
 
-1. **Git:** [descarga](https://git-scm.com/downloads/win), o `winget install --id Git.Git -e`.
-2. **Docker Desktop:** [instalación](https://docs.docker.com/desktop/setup/install/windows-install/), o `winget install --id Docker.DockerDesktop -e`. Durante la instalación dejá marcada la opción de usar WSL 2.
-3. **uv** (recomendado), desde PowerShell:
+1. **Git:** [download](https://git-scm.com/downloads/win), or `winget install --id Git.Git -e`.
+2. **Docker Desktop:** [install](https://docs.docker.com/desktop/setup/install/windows-install/), or `winget install --id Docker.DockerDesktop -e`. Keep the WSL 2 option checked during the installation.
+3. **uv** (recommended), from PowerShell:
 
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-   o `winget install --id=astral-sh.uv -e`. Cerrá y volvé a abrir la terminal.
-4. **Python**, solo si vas a usar `pip` en lugar de `uv`: [descarga](https://www.python.org/downloads/windows/), o `winget install --id Python.Python.3.12 -e`.
+   or `winget install --id=astral-sh.uv -e`. Close and reopen the terminal.
+4. **Python**, only if you will use `pip` instead of `uv`: [download](https://www.python.org/downloads/windows/), or `winget install --id Python.Python.3.12 -e`.
 
 #### PowerShell
 
-Seguí la [Puesta en marcha](#puesta-en-marcha) con las variantes **PowerShell**. Con `uv` no vas a necesitar cambiar la política de ejecución, porque `uv run` no activa ningún script.
+Follow [Getting started](#getting-started) with the **PowerShell** variants. With `uv` you won't need to change the execution policy, because `uv run` does not activate any script.
 
 #### cmd
 
-Seguí la [Puesta en marcha](#puesta-en-marcha) con las variantes **cmd**. En cmd no existe la restricción de scripts de PowerShell.
+Follow [Getting started](#getting-started) with the **cmd** variants. cmd does not have PowerShell's script restriction.
 
 #### Docker Desktop
 
-- **Tiene que estar abierto** antes de ejecutar `docker compose`. Si no lo está, los comandos de Docker fallan al conectar.
-- En la pestaña **Containers** vas a ver tu proyecto con el nombre que pusiste en `COMPOSE_PROJECT_NAME` y, adentro, el contenedor `DB_CONTAINER_NAME`. Desde ahí podés detenerlo, iniciarlo y ver sus registros.
-- En **Volumes** aparece el volumen de datos, llamado `<COMPOSE_PROJECT_NAME>_postgres_data`.
-- Si la aplicación no inicia o muestra errores de virtualización, ver [Solución de problemas](#solución-de-problemas).
+- **It has to be running** before you run `docker compose`. If it is not, Docker commands fail to connect.
+- The **Containers** tab shows your project under the name you set in `COMPOSE_PROJECT_NAME` and, inside it, the `DB_CONTAINER_NAME` container. From there you can stop it, start it and read its logs.
+- **Volumes** shows the data volume, named `<COMPOSE_PROJECT_NAME>_postgres_data`.
+- If the app does not start or shows virtualization errors, see [Troubleshooting](#troubleshooting).
 
-Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop/use-desktop/) · [buenas prácticas con WSL 2](https://docs.docker.com/desktop/features/wsl/best-practices/) · [permisos necesarios en Windows](https://docs.docker.com/desktop/setup/install/windows-permission-requirements/).
+Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-desktop/) · [WSL 2 best practices](https://docs.docker.com/desktop/features/wsl/best-practices/) · [permission requirements on Windows](https://docs.docker.com/desktop/setup/install/windows-permission-requirements/).
 
 ---
 
-## Variables de entorno
+## Environment variables
 
-| Variable | La usa | Para qué | Valor de ejemplo |
+| Variable | Read by | Used for | Example value |
 |---|---|---|---|
-| `ENVIRONMENT` | Django | Entorno. Con `prod`, se fuerza `DEBUG` a falso | `local` |
-| `SECRET_KEY` | Django | Clave criptográfica del proyecto | *(generada)* |
-| `DEBUG` | Django | Modo de depuración | `True` |
-| `ALLOWED_HOSTS` | Django | Dominios permitidos, separados por coma | `'*'` |
-| `APP_PORT` | Django | Puerto del servidor de desarrollo | `8000` |
-| `COMPOSE_PROJECT_NAME` | Compose | Nombre del proyecto. De él salen el volumen y la red | `saas` |
-| `DB_CONTAINER_NAME` | Compose | Nombre del contenedor de PostgreSQL | `saas_db` |
-| `DB_NAME` | Ambos | Nombre de la base | `saas_db` |
-| `DB_USER` | Ambos | Usuario de la base | `saas_user` |
-| `DB_PASSWORD` | Ambos | Contraseña de la base | *(propia)* |
-| `DB_HOST` | Django | Dónde está la base | `localhost` |
-| `DB_PORT` | Ambos | Puerto de la base en tu máquina | `5432` |
-| `ADMIN_EMAIL` | Django | Email del superusuario que crea `create_admin_auto` | `admin@example.com` |
-| `ADMIN_PASSWORD` | Django | Contraseña de ese superusuario | *(propia)* |
+| `ENVIRONMENT` | Django | Environment name. `prod` forces `DEBUG` off | `local` |
+| `SECRET_KEY` | Django | The project's cryptographic key | *(generated)* |
+| `DEBUG` | Django | Debug mode | `True` |
+| `ALLOWED_HOSTS` | Django | Allowed domains, comma separated | `'*'` |
+| `APP_PORT` | Django | Development server port | `8000` |
+| `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
+| `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
+| `DB_NAME` | Both | Database name | `saas_db` |
+| `DB_USER` | Both | Database user | `saas_user` |
+| `DB_PASSWORD` | Both | Database password | *(your own)* |
+| `DB_HOST` | Django | Where the database is | `localhost` |
+| `DB_PORT` | Both | Database port on your machine | `5432` |
+| `ADMIN_EMAIL` | Django | Email of the superuser created by `create_admin_auto` | `admin@example.com` |
+| `ADMIN_PASSWORD` | Django | That superuser's password | *(your own)* |
 
-Dos detalles que conviene saber:
+Two details worth knowing:
 
-- **PostgreSQL solo aplica `DB_NAME`, `DB_USER` y `DB_PASSWORD` la primera vez**, cuando crea el volumen. Si los cambiás después, la base ya existente no se entera: ver [Solución de problemas](#solución-de-problemas).
-- **El puerto de la base se publica solo en `127.0.0.1`**: es accesible desde tu máquina, pero no desde otros equipos de la red.
+- **PostgreSQL only applies `DB_NAME`, `DB_USER` and `DB_PASSWORD` the first time**, when it creates the volume. If you change them later, the existing database does not pick them up: see [Troubleshooting](#troubleshooting).
+- **The database port is published on `127.0.0.1` only**: reachable from your machine, not from other machines on the network.
 
 ---
 
-## Varios proyectos en la misma máquina
+## Several projects on the same machine
 
-Cada clon es un proyecto independiente mientras estos valores sean distintos en su `.env`:
+Each clone is an independent project as long as these values differ in its `.env`:
 
-| Variable | Proyecto A | Proyecto B |
+| Variable | Project A | Project B |
 |---|---|---|
-| `COMPOSE_PROJECT_NAME` | `tienda` | `blog` |
-| `DB_CONTAINER_NAME` | `tienda_db` | `blog_db` |
+| `COMPOSE_PROJECT_NAME` | `shop` | `blog` |
+| `DB_CONTAINER_NAME` | `shop_db` | `blog_db` |
 | `DB_PORT` | `5432` | `5433` |
 | `APP_PORT` | `8000` | `8001` |
 
-Con eso, cada uno tiene su contenedor, su volumen de datos, su red y sus puertos, y pueden estar levantados a la vez.
+With that, each one has its own container, data volume, network and ports, and they can run at the same time.
 
-`DB_NAME` y `DB_USER` pueden repetirse, porque cada base vive en su propio contenedor; aun así, usar nombres distintos evita confusiones.
+`DB_NAME` and `DB_USER` can repeat, because each database lives in its own container; different names still avoid confusion.
 
 ---
 
 ## API
 
-| Método | Ruta | Qué hace | Cuerpo |
+| Method | Path | What it does | Body |
 |---|---|---|---|
-| `POST` | `/api/v1/auth/register/` | Registra un usuario | `email`, `password`, `password2`, `first_name`, `last_name` |
-| `POST` | `/api/v1/auth/login/` | Devuelve los tokens `access` y `refresh` | `email`, `password` |
-| `POST` | `/api/v1/auth/login/refresh/` | Devuelve un `access` nuevo | `refresh` |
+| `POST` | `/api/v1/auth/register/` | Registers a user | `email`, `password`, `password2`, `first_name`, `last_name` |
+| `POST` | `/api/v1/auth/login/` | Returns the `access` and `refresh` tokens | `email`, `password` |
+| `POST` | `/api/v1/auth/login/refresh/` | Returns a new `access` token | `refresh` |
 
-Las rutas que agregues exigen autenticación por omisión: enviá el token en el encabezado `Authorization: Bearer <access>`.
+Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
-El panel de administración está en `/admin/`.
+The admin panel is at `/admin/`.
 
 ---
 
-## Dependencias
+## Dependencies
 
-`pyproject.toml` es la única fuente. `uv.lock` fija la versión exacta de cada paquete para todos los sistemas, y los archivos `requirements` se generan a partir de él para quien use `pip`.
+`pyproject.toml` is the single source. `uv.lock` pins the exact version of every package for all platforms, and the `requirements` files are generated from it for `pip` users.
 
-| Tarea | Comando |
+| Task | Command |
 |---|---|
-| Agregar una dependencia | `uv add <paquete>` |
-| Agregar una herramienta de desarrollo | `uv add --dev <paquete>` |
-| Actualizar las versiones fijadas | `uv lock --upgrade` |
-| Regenerar `requirements.txt` | `uv export --no-dev --no-hashes -o requirements.txt` |
-| Regenerar `requirements-dev.txt` | `uv export --no-hashes -o requirements-dev.txt` |
+| Add a dependency | `uv add <package>` |
+| Add a development tool | `uv add --dev <package>` |
+| Upgrade the pinned versions | `uv lock --upgrade` |
+| Regenerate `requirements.txt` | `uv export --no-dev --no-hashes -o requirements.txt` |
+| Regenerate `requirements-dev.txt` | `uv export --no-hashes -o requirements-dev.txt` |
 
-**No edites los `requirements` a mano.** Después de cambiar una dependencia, regenerá los dos.
+**Do not edit the `requirements` files by hand.** After changing a dependency, regenerate both.
 
-Más información: [dependencias en uv](https://docs.astral.sh/uv/concepts/projects/dependencies/) · [exportar el lock](https://docs.astral.sh/uv/concepts/projects/export/).
-
----
-
-## Pruebas y formato
-
-Las pruebas necesitan la base de datos levantada (paso 3).
-
-| Tarea | Con uv | Con pip + venv |
-|---|---|---|
-| Ejecutar las pruebas | `uv run python manage.py test` | `python manage.py test` |
-| Comprobar el formato | `uv run black --check .` | `black --check .` |
-| Aplicar el formato | `uv run black .` | `black .` |
+More: [managing dependencies in uv](https://docs.astral.sh/uv/concepts/projects/dependencies/) · [exporting the lockfile](https://docs.astral.sh/uv/concepts/projects/export/).
 
 ---
 
-## Solución de problemas
+## Tests and formatting
 
-### Variables y Compose
+The tests need the database running (step 3).
 
-| Síntoma | Causa | Solución |
+| Task | With uv | With pip + venv |
 |---|---|---|
-| `required variable ... is missing a value` | Falta el `.env` o le falta esa variable | Creá el `.env` (paso 2) o completá la variable |
-| `Conflict. The container name "/..." is already in use` | Otro proyecto usa el mismo `DB_CONTAINER_NAME` | Cambialo en tu `.env` |
-| `port is already allocated` o `ports are not available` | `DB_PORT` está ocupado | Cambiá `DB_PORT` en tu `.env` y volvé a levantar |
-| `Error: That port is already in use.` al arrancar el servidor | `APP_PORT` está ocupado | Cambiá `APP_PORT` en tu `.env` |
-| `password authentication failed for user` | Cambiaste las credenciales después de crear la base | PostgreSQL solo las aplica al crear el volumen. Volvé a los valores anteriores, o recreá la base con `docker compose down -v` (**borra los datos**) y `docker compose up -d --wait` |
-| `Set the SECRET_KEY environment variable` | Django no encuentra el `.env` | Tiene que estar en la raíz del proyecto, junto a `manage.py` |
-| Compose y Django no coinciden en un valor: la base se crea con otro nombre o la contraseña no sirve | El valor contiene `$`, o un `#` precedido de un espacio, y Compose lo recorta | Generá otro valor sin esos caracteres (paso 2) |
-
-Referencias: [variables en Compose](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/) · [precedencia](https://docs.docker.com/compose/how-tos/environment-variables/envvars-precedence/) · [nombre del proyecto](https://docs.docker.com/compose/how-tos/project-name/).
-
-### Docker Desktop en Windows
-
-| Síntoma | Causa | Solución |
-|---|---|---|
-| `failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine` | Docker Desktop no está abierto | Abrilo y esperá a que termine de iniciar |
-| `Docker Desktop - Unexpected WSL error` o avisos de virtualización | La virtualización está desactivada o WSL no está al día | Activala en la BIOS/UEFI y ejecutá `wsl --update`. Ver [temas de solución de problemas](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/topics/) |
-| `Docker Desktop - Access Denied` | Tu usuario no está en el grupo `docker-users` | Ver [permisos en Windows](https://docs.docker.com/desktop/setup/install/windows-permission-requirements/) |
-| `docker` no se reconoce dentro de WSL | Falta activar la integración con tu distribución | *Settings → Resources → WSL integration*. Ver [Docker Desktop con WSL 2](https://docs.docker.com/desktop/features/wsl/) |
-| El puerto figura libre pero Docker no puede publicarlo | Windows lo tiene en un rango reservado | Revisalo con `netsh interface ipv4 show excludedportrange protocol=tcp` y elegí otro `DB_PORT`. Ver [`netsh interface`](https://learn.microsoft.com/es-es/windows-server/administration/windows-commands/netsh-interface) |
-
-Más ayuda: [solución de problemas de Docker Desktop](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/) · [preguntas frecuentes para Windows](https://docs.docker.com/desktop/troubleshoot-and-support/faqs/windowsfaqs/) · [solución de problemas de WSL](https://learn.microsoft.com/es-es/windows/wsl/troubleshooting).
-
-### Python en Windows
-
-| Síntoma | Causa | Solución |
-|---|---|---|
-| `Activate.ps1 cannot be loaded because running scripts is disabled on this system` | Política de ejecución de PowerShell | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` y volvé a activar; o usá `uv run`, que no activa nada. Ver [políticas de ejecución](https://learn.microsoft.com/es-es/powershell/module/microsoft.powershell.core/about/about_execution_policies) |
-| `python` abre la tienda de Microsoft o no se reconoce | Python no está instalado o no está en el `PATH` | Usá `py`, o instalá Python. Ver [Python en Windows](https://docs.python.org/3/using/windows.html) |
-| `uv` no se reconoce después de instalarlo | La terminal no recargó el `PATH` | Cerrá y volvé a abrir la terminal |
-| Errores por rutas demasiado largas al instalar | Límite de 260 caracteres | Cloná en una ruta corta o habilitá las rutas largas. Ver [límite de longitud de rutas](https://learn.microsoft.com/es-es/windows/win32/fileio/maximum-file-path-limitation) |
-| `makemessages` falla porque no encuentra `msguniq` | Falta `gettext` | Ver [gettext en Windows](https://docs.djangoproject.com/es/5.2/topics/i18n/translation/#gettext-on-windows) |
-
-Más ayuda: [instalar Django en Windows](https://docs.djangoproject.com/es/5.2/howto/windows/) · [entornos virtuales](https://docs.python.org/3/library/venv.html) · [solución de problemas de uv](https://docs.astral.sh/uv/reference/troubleshooting/).
-
-### Finales de línea
-
-El archivo `.gitattributes` hace que Git guarde y entregue todos los archivos con finales de línea de Linux (LF), también en Windows. Si un editor los convierte a CRLF, Git los normaliza al confirmar los cambios. Más información en [configurar Git para los finales de línea](https://docs.github.com/es/get-started/git-basics/configuring-git-to-handle-line-endings).
+| Run the tests | `uv run python manage.py test` | `python manage.py test` |
+| Check formatting | `uv run black --check .` | `black --check .` |
+| Apply formatting | `uv run black .` | `black .` |
 
 ---
 
-## Actualizar desde PostgreSQL 15
+## Troubleshooting
 
-Si ya usabas una versión anterior de esta base, tu volumen tiene datos de PostgreSQL 15. Una versión mayor nueva **no abre los datos de la anterior**, y además la versión 18 guarda los datos en otra ruta. El volumen viejo no se toca: sigue existiendo hasta que lo borres.
+### Variables and Compose
 
-Para llevar tus datos, hacé una copia **antes** de actualizar. Estos comandos son iguales en cualquier terminal:
+| Symptom | Cause | Fix |
+|---|---|---|
+| `required variable ... is missing a value` | The `.env` file is missing, or it lacks that variable | Create `.env` (step 2) or fill in the variable |
+| `Conflict. The container name "/..." is already in use` | Another project uses the same `DB_CONTAINER_NAME` | Change it in your `.env` |
+| `port is already allocated` or `ports are not available` | `DB_PORT` is taken | Change `DB_PORT` in your `.env` and start again |
+| `Error: That port is already in use.` when starting the server | `APP_PORT` is taken | Change `APP_PORT` in your `.env` |
+| `password authentication failed for user` | You changed the credentials after the database was created | PostgreSQL only applies them when it creates the volume. Go back to the previous values, or recreate the database with `docker compose down -v` (**deletes the data**) and `docker compose up -d --wait` |
+| `Set the SECRET_KEY environment variable` | Django can't find `.env` | It has to be at the project root, next to `manage.py` |
+| Compose and Django disagree on a value: the database gets another name or the password is rejected | The value contains `$`, or a `#` after a space, and Compose cuts it | Generate another value without those characters (step 2) |
+
+References: [variables in Compose](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/) · [precedence](https://docs.docker.com/compose/how-tos/environment-variables/envvars-precedence/) · [project name](https://docs.docker.com/compose/how-tos/project-name/).
+
+### Docker Desktop on Windows
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine` | Docker Desktop is not running | Open it and wait until it finishes starting |
+| `Docker Desktop - Unexpected WSL error` or virtualization warnings | Virtualization is off or WSL is out of date | Turn it on in the BIOS/UEFI and run `wsl --update`. See [troubleshooting topics](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/topics/) |
+| `Docker Desktop - Access Denied` | Your user is not in the `docker-users` group | See [permission requirements on Windows](https://docs.docker.com/desktop/setup/install/windows-permission-requirements/) |
+| `docker` is not recognized inside WSL | The integration with your distribution is off | *Settings → Resources → WSL integration*. See [Docker Desktop WSL 2 backend](https://docs.docker.com/desktop/features/wsl/) |
+| The port looks free but Docker can't publish it | Windows holds it in a reserved range | Check with `netsh interface ipv4 show excludedportrange protocol=tcp` and pick another `DB_PORT`. See [`netsh interface`](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-interface) |
+
+More help: [Docker Desktop troubleshooting](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/) · [Windows FAQs](https://docs.docker.com/desktop/troubleshoot-and-support/faqs/windowsfaqs/) · [WSL troubleshooting](https://learn.microsoft.com/en-us/windows/wsl/troubleshooting).
+
+### Python on Windows
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Activate.ps1 cannot be loaded because running scripts is disabled on this system` | PowerShell execution policy | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` and activate again; or use `uv run`, which activates nothing. See [execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies) |
+| `python` opens the Microsoft Store or is not recognized | Python is not installed or not on the `PATH` | Use `py`, or install Python. See [Python on Windows](https://docs.python.org/3/using/windows.html) |
+| `uv` is not recognized after installing it | The terminal did not reload the `PATH` | Close and reopen the terminal |
+| Errors about paths that are too long during installation | 260-character limit | Clone into a short path or enable long paths. See [maximum path length limitation](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation) |
+| `makemessages` fails because it can't find `msguniq` | `gettext` is missing | See [gettext on Windows](https://docs.djangoproject.com/en/5.2/topics/i18n/translation/#gettext-on-windows) |
+
+More help: [how to install Django on Windows](https://docs.djangoproject.com/en/5.2/howto/windows/) · [virtual environments](https://docs.python.org/3/library/venv.html) · [uv troubleshooting](https://docs.astral.sh/uv/reference/troubleshooting/).
+
+### Line endings
+
+`.gitattributes` makes Git store and check out every file with Linux line endings (LF), on Windows too. If an editor converts them to CRLF, Git normalizes them on commit. More in [configuring Git to handle line endings](https://docs.github.com/en/get-started/git-basics/configuring-git-to-handle-line-endings).
+
+---
+
+## Upgrading from PostgreSQL 15
+
+If you used an earlier version of this base, your volume holds PostgreSQL 15 data. A new major version **does not open the previous version's data**, and version 18 also stores the data in another path. The old volume is left untouched: it stays until you delete it.
+
+To keep your data, take a dump **before** upgrading. These commands are the same in every terminal:
 
 ```bash
-docker exec <contenedor_viejo> pg_dump --no-owner -U <usuario> -d <base> -f /tmp/respaldo.sql
-docker cp <contenedor_viejo>:/tmp/respaldo.sql respaldo.sql
+docker exec <old_container> pg_dump --no-owner -U <user> -d <database> -f /tmp/backup.sql
+docker cp <old_container>:/tmp/backup.sql backup.sql
 ```
 
-`--no-owner` permite restaurar aunque el usuario de la base nueva se llame distinto.
+`--no-owner` lets you restore even if the user of the new database has a different name.
 
-Después de actualizar y levantar la base nueva, y **antes de ejecutar `migrate`**:
+After upgrading and starting the new database, and **before running `migrate`**:
 
 ```bash
-docker cp respaldo.sql <contenedor_nuevo>:/tmp/respaldo.sql
-docker exec <contenedor_nuevo> psql -U <usuario> -d <base> -f /tmp/respaldo.sql
+docker cp backup.sql <new_container>:/tmp/backup.sql
+docker exec <new_container> psql -U <user> -d <database> -f /tmp/backup.sql
 ```
 
-Si no necesitás los datos anteriores, no hace falta hacer nada: la base nueva arranca vacía y `migrate` crea las tablas.
+If you don't need the old data, there is nothing to do: the new database starts empty and `migrate` creates the tables.
 
-Referencia: [imagen oficial de PostgreSQL](https://hub.docker.com/_/postgres).
+Reference: [official PostgreSQL image](https://hub.docker.com/_/postgres).
 
 ---
 
-## Renombrar el proyecto
+## Renaming the project
 
-La carpeta `core` contiene la configuración. Podés dejarla con ese nombre; si querés cambiarlo (por ejemplo a `tienda`), **no uses buscar y reemplazar sobre todo el proyecto**: la palabra `core` también forma parte de `django.core`, y romperías esas importaciones.
+The `core` folder holds the configuration. You can keep that name; if you want to change it (for example to `shop`), **don't search and replace across the whole project**: the word `core` is also part of `django.core`, and you would break those imports.
 
-Renombrá la carpeta y cambiá solo estas referencias:
+Rename the folder and change only these references:
 
-| Archivo | Qué cambiar |
+| File | What to change |
 |---|---|
 | `manage.py` | `"core.settings"` |
-| `<carpeta>/asgi.py` | `"core.settings"` |
-| `<carpeta>/wsgi.py` | `"core.settings"` |
-| `<carpeta>/settings.py` | `ROOT_URLCONF`, `WSGI_APPLICATION` y la entrada `"core"` de `INSTALLED_APPS` |
-| `<carpeta>/tests.py` | Las dos menciones a `"core"` |
-| `pyproject.toml` | `name`, con el nombre de tu proyecto |
+| `<folder>/asgi.py` | `"core.settings"` |
+| `<folder>/wsgi.py` | `"core.settings"` |
+| `<folder>/settings.py` | `ROOT_URLCONF`, `WSGI_APPLICATION` and the `"core"` entry in `INSTALLED_APPS` |
+| `<folder>/tests.py` | The two mentions of `"core"` |
+| `pyproject.toml` | `name`, with your project's name |
 
-Comprobá el resultado con `python manage.py check` y `python manage.py test`.
+Check the result with `python manage.py check` and `python manage.py test`.
 
 ---
 
-## Internacionalización
+## Internationalization
 
-El proyecto está preparado para inglés y español.
+The project is ready for English and Spanish.
 
-1. **Marcá los textos** con `gettext_lazy`:
+1. **Mark the strings** with `gettext_lazy`:
 
    ```python
    from django.utils.translation import gettext_lazy as _
@@ -502,25 +505,31 @@ El proyecto está preparado para inglés y español.
        name = models.CharField(_("name"), max_length=100)
    ```
 
-2. **Creá la carpeta de traducciones** la primera vez (`mkdir locale`) y **generá los archivos**:
+2. **Create the translations folder** the first time (`mkdir locale`) and **generate the files**:
 
    ```bash
    python manage.py makemessages -l es -l en
    ```
 
-3. **Traducí** en `locale/es/LC_MESSAGES/django.po` y `locale/en/LC_MESSAGES/django.po`.
-4. **Compilá:**
+3. **Translate** in `locale/es/LC_MESSAGES/django.po` and `locale/en/LC_MESSAGES/django.po`.
+4. **Compile:**
 
    ```bash
    python manage.py compilemessages --ignore ".venv*"
    ```
 
-   Sin `--ignore`, Django recorre también el entorno virtual y vuelve a compilar los miles de catálogos de las librerías instaladas.
+   Without `--ignore`, Django also walks the virtual environment and recompiles the thousands of catalogs of the installed libraries.
 
-`makemessages` y `compilemessages` necesitan `gettext` instalado en el sistema. En Windows, ver [gettext en Windows](https://docs.djangoproject.com/es/5.2/topics/i18n/translation/#gettext-on-windows).
+`makemessages` and `compilemessages` need `gettext` installed on the system. On Windows, see [gettext on Windows](https://docs.djangoproject.com/en/5.2/topics/i18n/translation/#gettext-on-windows).
 
 ---
 
-## Licencia
+## Contributing
 
-Distribuido bajo la licencia MIT. El texto completo está en [LICENSE](LICENSE).
+Bug reports, ideas and pull requests are welcome. Before opening one, read the [contributing guide](CONTRIBUTING.md) ([Español](CONTRIBUTING.es.md)): it covers the branch flow (`staging` for day-to-day work, `main` for releases), the commit format and the checks CI runs. Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
+
+---
+
+## License
+
+Released under the MIT license. The full text is in [LICENSE](LICENSE).

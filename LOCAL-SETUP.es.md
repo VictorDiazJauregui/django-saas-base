@@ -1,6 +1,8 @@
 # Levantar el proyecto en local
 
-Guía operativa: qué corre, en qué puerto, con qué comandos y cómo comprobar que quedó arriba. Los comandos están en **bash / zsh**; las variantes para PowerShell y cmd, y la instalación de las herramientas en cada sistema, están en el [README](README.md).
+[English](LOCAL-SETUP.md) · [Español](LOCAL-SETUP.es.md)
+
+Guía operativa: qué corre, en qué puerto, con qué comandos y cómo comprobar que quedó arriba. Los comandos están en **bash / zsh**; las variantes para PowerShell y cmd, y la instalación de las herramientas en cada sistema, están en el [README](README.es.md).
 
 ---
 
@@ -41,7 +43,7 @@ Crearlo:
 cp .env.example .env
 ```
 
-Después hay que editar, como mínimo, `COMPOSE_PROJECT_NAME`, `DB_CONTAINER_NAME`, `SECRET_KEY`, `DB_PASSWORD` y `ADMIN_PASSWORD`. El detalle de cada variable está en el [README](README.md#variables-de-entorno).
+Después hay que editar, como mínimo, `COMPOSE_PROJECT_NAME`, `DB_CONTAINER_NAME`, `SECRET_KEY`, `DB_PASSWORD` y `ADMIN_PASSWORD`. El detalle de cada variable está en el [README](README.es.md#variables-de-entorno).
 
 Para consultar un valor **sin mostrar el archivo entero** (contiene contraseñas):
 
@@ -143,9 +145,9 @@ Los datos no se pierden: viven en el volumen, no en el contenedor.
 
 ---
 
-## 9. Pruebas
+## 9. Tests
 
-Necesitan la base levantada: Django crea y elimina una base temporal para ejecutarlas.
+Necesitan la base levantada: Django crea y elimina una base temporal para correrlos.
 
 ```bash
 uv run python manage.py test
@@ -165,4 +167,4 @@ uv run black --check .
 | `password authentication failed for user` | Se cambiaron las credenciales después de crear la base | PostgreSQL solo las aplica al crear el volumen: volver a las anteriores o recrear con `docker compose down -v` |
 | `Conflict. The container name ... is already in use` después de cambiar `COMPOSE_PROJECT_NAME` | Con otro nombre de proyecto, Compose intenta crear un contenedor nuevo con el mismo nombre. El volumen de datos también cambiaría | Volver al nombre anterior. El conflicto es lo que evita levantar sobre un volumen vacío |
 
-La lista completa, incluidos los casos propios de Windows y Docker Desktop, está en el [README](README.md#solución-de-problemas).
+La lista completa, incluidos los casos propios de Windows y Docker Desktop, está en el [README](README.es.md#solución-de-problemas).

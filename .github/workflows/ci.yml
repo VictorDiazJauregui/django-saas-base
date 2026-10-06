@@ -11,12 +11,8 @@ concurrency:
 
 jobs:
   checks:
-    name: Format, lockfile and tests (Python ${{ matrix.python }})
+    name: Format, lockfile and tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13"]
     services:
       postgres:
         image: postgres:18-alpine
@@ -44,10 +40,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # setup-uv only publishes full version tags; there is no floating v10 tag.
+      # Without python-version, uv uses the version in .python-version.
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.2.0
         with:
-          python-version: ${{ matrix.python }}
           enable-cache: true
 
       - name: Check the lockfile matches pyproject.toml

@@ -1,0 +1,58 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Spanish are both fine.
+        Security problems go through "Report a vulnerability" in the Security tab, not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Steps, the request you sent (without credentials) and the response or traceback.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Authentication API (register, login, refresh)
+        - Audit log
+        - Admin
+        - Settings and environment variables
+        - Docker Compose and PostgreSQL
+        - Dependencies and setup (uv, pip)
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: 0.1.0 or a commit hash
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, terminal, and how you run Python.
+      placeholder: Windows 11 PowerShell, uv 0.11, Python 3.12
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else

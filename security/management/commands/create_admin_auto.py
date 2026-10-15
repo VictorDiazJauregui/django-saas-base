@@ -22,7 +22,7 @@ class Command(BaseCommand):
                 "ADMIN_EMAIL and ADMIN_PASSWORD must be set in the environment."
             )
 
-        if User.objects.filter(email=email).exists():
+        if User.objects.filter(email__iexact=email).exists():
             self.stdout.write(
                 self.style.SUCCESS(f'Superuser "{email}" already exists.')
             )

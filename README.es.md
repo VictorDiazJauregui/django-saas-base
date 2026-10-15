@@ -332,6 +332,11 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `DB_PORT` | Ambos | Puerto de la base en tu máquina | `5432` |
 | `ADMIN_EMAIL` | Django | Email del superusuario que crea `create_admin_auto` | `admin@example.com` |
 | `ADMIN_PASSWORD` | Django | Contraseña de ese superusuario | *(propia)* |
+| `PASSWORD_MIN_LENGTH` | Django | Largo mínimo de la contraseña | `8` |
+| `PASSWORD_REQUIRE_UPPERCASE` | Django | La contraseña necesita una mayúscula (`A-Z`) | `True` |
+| `PASSWORD_REQUIRE_LOWERCASE` | Django | La contraseña necesita una minúscula (`a-z`) | `True` |
+| `PASSWORD_REQUIRE_DIGIT` | Django | La contraseña necesita un dígito (`0-9`) | `True` |
+| `PASSWORD_REQUIRE_SYMBOL` | Django | La contraseña necesita un símbolo (puntuación ASCII, como `!`, `#`, `-`, `_`) | `True` |
 
 Dos detalles que conviene saber:
 
@@ -369,6 +374,14 @@ Las rutas que agregues exigen autenticación por omisión: enviá el token en el
 
 El claim `user_id` de los dos tokens es el UUID del usuario como string, por ejemplo
 `"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
+
+Los emails se guardan en minúsculas y sin espacios alrededor, y son únicos sin distinguir mayúsculas: registrar `Jane@Example.com` cuando existe `jane@example.com` responde `400`. El login acepta el email con cualquier combinación de mayúsculas.
+
+La política de contraseñas rige en la API y en el admin. Por defecto una contraseña necesita 8 caracteres, una mayúscula, una minúscula, un dígito y un símbolo, y no puede parecerse demasiado al email ni al nombre. Solo cuenta ASCII: `ñ` o `€` se aceptan pero no cumplen ninguna regla. Cada regla se cambia con las variables `PASSWORD_*`. Un registro que incumple varias reglas recibe todos los mensajes en `password`:
+
+```json
+{"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}
+```
 
 El panel de administración está en `/admin/`.
 

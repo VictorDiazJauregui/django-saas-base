@@ -101,13 +101,27 @@ DATABASES = {
 
 # --- Password Validation ---
 # https://docs.djangoproject.com/en/stable/ref/settings/#auth-password-validators
+PASSWORD_MIN_LENGTH = env.int("PASSWORD_MIN_LENGTH", default=8)
+PASSWORD_REQUIRED_CHARACTER_CLASSES = [
+    name
+    for name in ("uppercase", "lowercase", "digit", "symbol")
+    if env.bool(f"PASSWORD_REQUIRE_{name.upper()}", default=True)
+]
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
     },
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": PASSWORD_MIN_LENGTH},
+    },
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+    {
+        "NAME": "security.password_validation.CharacterClassValidator",
+        "OPTIONS": {"required_classes": PASSWORD_REQUIRED_CHARACTER_CLASSES},
+    },
 ]
 
 # --- Custom User Model ---

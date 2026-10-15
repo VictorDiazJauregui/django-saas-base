@@ -46,6 +46,7 @@ Run the same checks as CI, with the database up:
 
 ```bash
 uv run black --check .
+uv run ruff check .
 uv run python manage.py makemigrations --check --dry-run
 uv run python manage.py test
 ```
@@ -60,7 +61,9 @@ uv export --no-hashes -o requirements-dev.txt
 
 ## Code style
 
-`black` formats the code. The rest is checked in review:
+`black` formats the code and `ruff` lints it (rules in `pyproject.toml`). If a rule does not fit,
+turn it off in `pyproject.toml` with the reason, not with a loose `noqa`. The rest is checked in
+review:
 
 - Functions do one thing, have at most 20 lines and 3 parameters (not counting `self` or `cls`).
   Group more parameters in an object.

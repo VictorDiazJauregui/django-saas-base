@@ -152,6 +152,7 @@ Necesitan la base levantada: Django crea y elimina una base temporal para correr
 ```bash
 uv run python manage.py test
 uv run black --check .
+uv run ruff check .
 ```
 
 ---

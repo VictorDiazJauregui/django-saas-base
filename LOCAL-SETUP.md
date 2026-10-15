@@ -152,6 +152,7 @@ They need the database running: Django creates and drops a temporary database to
 ```bash
 uv run python manage.py test
 uv run black --check .
+uv run ruff check .
 ```
 
 ---

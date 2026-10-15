@@ -13,6 +13,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [Puesta en marcha](#puesta-en-marcha)
 - [Guía por sistema](#guía-por-sistema)
 - [Variables de entorno](#variables-de-entorno)
+- [Producción](#producción)
 - [Varios proyectos en la misma máquina](#varios-proyectos-en-la-misma-máquina)
 - [API](#api)
 - [Dependencias](#dependencias)
@@ -318,11 +319,23 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 
 | Variable | La usa | Para qué | Valor de ejemplo |
 |---|---|---|---|
-| `ENVIRONMENT` | Django | Entorno. Con `prod`, se fuerza `DEBUG` a falso | `local` |
+| `ENVIRONMENT` | Django | `local`, `ci`, `staging` o `prod`. Con otro valor, Django no arranca. Ver [Producción](#producción) | `local` |
 | `SECRET_KEY` | Django | Clave criptográfica del proyecto | *(generada)* |
-| `DEBUG` | Django | Modo de depuración | `True` |
-| `ALLOWED_HOSTS` | Django | Dominios permitidos, separados por coma | `'*'` |
+| `DEBUG` | Django | Modo de depuración. Solo se permite en `local` y `ci` | `True` |
+| `ALLOWED_HOSTS` | Django | Dominios que sirven el proyecto, separados por coma, sin esquema ni puerto. Obligatoria en `staging` y `prod`, donde `*` se rechaza | `localhost,127.0.0.1` |
 | `APP_PORT` | Django | Puerto del servidor de desarrollo | `8000` |
+| `SECURE_HSTS_SECONDS` | Django | Cuánto tiempo recuerda el navegador que solo debe usar HTTPS (`staging` y `prod`) | `3600` |
+| `SECURE_HSTS_INCLUDE_SUBDOMAINS` | Django | Extiende HSTS a todos los subdominios | `False` |
+| `SECURE_HSTS_PRELOAD` | Django | Permite anotar el dominio en la lista de precarga HSTS de los navegadores | `False` |
+| `USE_X_FORWARDED_PROTO` | Django | Confía en el header `X-Forwarded-Proto` del proxy que termina TLS | `False` |
+| `CSRF_TRUSTED_ORIGINS` | Django | Orígenes extra que pueden enviar formularios, separados por coma, con esquema | *(vacía)* |
+| `THROTTLE_ANON_RATE` | Django | Límite para requests anónimas a cualquier endpoint. Vacía: sin límite | *(vacía)* |
+| `THROTTLE_USER_RATE` | Django | Límite para requests autenticadas a cualquier endpoint. Vacía: sin límite | *(vacía)* |
+| `THROTTLE_LOGIN_RATE` | Django | Límite de `POST /api/v1/auth/login/` | `10/10m` |
+| `THROTTLE_REGISTER_RATE` | Django | Límite de `POST /api/v1/auth/register/` | `5/h` |
+| `THROTTLE_PASSWORD_RATE` | Django | Límite de los endpoints de contraseña que agregues con `throttle_scope = "password"` | `5/h` |
+| `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header | `0` |
+| `CACHE_URL` | Django | Cache donde se cuentan los límites | `locmemcache://` |
 | `COMPOSE_PROJECT_NAME` | Compose | Nombre del proyecto. De él salen el volumen y la red | `saas` |
 | `DB_CONTAINER_NAME` | Compose | Nombre del contenedor de PostgreSQL | `saas_db` |
 | `DB_NAME` | Ambos | Nombre de la base | `saas_db` |
@@ -342,6 +355,37 @@ Dos detalles que conviene saber:
 
 - **PostgreSQL solo aplica `DB_NAME`, `DB_USER` y `DB_PASSWORD` la primera vez**, cuando crea el volumen. Si los cambiás después, la base ya existente no se entera: ver [Solución de problemas](#solución-de-problemas).
 - **El puerto de la base se publica solo en `127.0.0.1`**: es accesible desde tu máquina, pero no desde otros equipos de la red.
+
+---
+
+## Producción
+
+`ENVIRONMENT` define qué tan estricta es la configuración. Django no arranca si un valor no corresponde al entorno, así el error aparece en el deploy y no con tráfico real.
+
+| | `local`, `ci` | `staging`, `prod` |
+|---|---|---|
+| `DEBUG=True` | Permitido | Django no arranca |
+| `ALLOWED_HOSTS` | Opcional; por defecto `*` con `DEBUG` y `localhost` sin él | Obligatoria, sin `*` |
+| Requests por HTTP | Se atienden | Se redirigen a HTTPS |
+| Cookies de sesión y CSRF | Viajan por HTTP | `Secure`: solo HTTPS |
+| HSTS | Apagado | `SECURE_HSTS_SECONDS`, `3600` por defecto |
+
+Django también revisa los valores copiados de `.env.example`. Si `SECRET_KEY`, `DB_PASSWORD` o `ADMIN_PASSWORD` siguen con el valor del ejemplo, `runserver`, `migrate` y `check` lo informan: como aviso en `local` y `ci` (`core.W001` a `core.W003`) y como error que frena el comando en `staging` y `prod` (`core.E001` a `core.E003`). Una `SECRET_KEY` corta la informa Django mismo (`security.W009`).
+
+Antes de desplegar, corré el mismo chequeo que la CI, con el `.env` de producción cargado:
+
+```bash
+python manage.py check --deploy --fail-level WARNING
+```
+
+Termina con `System check identified no issues (2 silenced)`. Los dos avisos silenciados son los de HSTS que se explican abajo.
+
+Lo que conviene saber antes de salir a producción:
+
+- **Detrás de un proxy o load balancer que termina TLS**, poné `USE_X_FORWARDED_PROTO=True` y asegurate de que el proxy pise `X-Forwarded-Proto`. Sin eso, Django ve HTTP y redirige en loop.
+- **Subí `SECURE_HSTS_SECONDS` a `31536000`** (un año) cuando todas las páginas funcionen por HTTPS. El navegador guarda el valor: bajarlo después solo afecta a visitantes nuevos.
+- **`SECURE_HSTS_PRELOAD=True` es casi irreversible.** La lista de precarga viene dentro de los navegadores y salir de ella tarda meses. Por eso está apagado y su aviso de `check --deploy` queda silenciado mientras siga así; lo mismo vale para `SECURE_HSTS_INCLUDE_SUBDOMAINS`.
+- **`CSRF_TRUSTED_ORIGINS`** solo hace falta si el admin u otro formulario se envía desde un origen distinto del que lo sirve. Un origen comodín total como `https://*` se rechaza en `staging` y `prod`.
 
 ---
 
@@ -382,6 +426,21 @@ La política de contraseñas rige en la API y en el admin. Por defecto una contr
 ```json
 {"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}
 ```
+
+### Límites de requests
+
+El login admite 10 requests cada 10 minutos y el registro 5 por hora, contados por IP del cliente. La request siguiente recibe `429` hasta que el período libera un lugar, con la espera en segundos en el header `Retry-After` y en `detail`:
+
+```json
+{"detail": "Request was throttled. Expected available in 542 seconds."}
+```
+
+Cuenta cada request, sin importar el resultado: una contraseña correcta después de 10 intentos fallidos también recibe `429`. Cada límite es una variable `THROTTLE_*_RATE` con el formato `<requests>/<período>`, donde el período es `s`, `m`, `h` o `d` con un múltiplo opcional (`10/m`, `10/10m`, `100/6h`). Un valor vacío apaga el límite y uno inválido no deja arrancar a Django. Para limitar una vista que agregues, poné `throttle_scope` con uno de los scopes, o sumá el tuyo a `THROTTLE_RATE_DEFAULTS` en `core/settings.py`.
+
+Dos cosas para configurar antes de producción:
+
+- **Detrás de un proxy**, poné en `TRUSTED_PROXY_COUNT` la cantidad de proxies que agregan su entrada a `X-Forwarded-For`. Con `0`, todas las requests parecen venir del proxy y todos los clientes comparten un mismo límite. Un número mayor al real deja que el cliente elija su propia IP.
+- **Con varios procesos** (workers de gunicorn, más de un servidor), la cache por defecto es por proceso y cada uno cuenta por su lado: 4 workers admiten 40 logins cada 10 minutos. Apuntá `CACHE_URL` a Redis (`redis://host:6379/0`) y sumá el paquete `redis` al proyecto.
 
 El panel de administración está en `/admin/`.
 

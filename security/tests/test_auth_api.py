@@ -1,8 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
 
+from .api_test_case import CacheResetAPITestCase
 from .user_factory import (
     DEFAULT_EMAIL,
     DEFAULT_PASSWORD,
@@ -17,7 +17,7 @@ LOGIN_URL = reverse("security:login")
 REFRESH_URL = reverse("security:token_refresh")
 
 
-class UserRegistrationTests(APITestCase):
+class UserRegistrationTests(CacheResetAPITestCase):
     def test_registers_user_with_hashed_password(self):
         response = self.client.post(
             REGISTER_URL, build_registration_payload(), format="json"
@@ -54,8 +54,9 @@ class UserRegistrationTests(APITestCase):
         self.assertEqual(User.objects.count(), 1)
 
 
-class LoginTests(APITestCase):
+class LoginTests(CacheResetAPITestCase):
     def setUp(self):
+        super().setUp()
         create_user()
 
     def test_returns_token_pair_for_valid_credentials(self):
@@ -75,8 +76,9 @@ class LoginTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-class TokenRefreshTests(APITestCase):
+class TokenRefreshTests(CacheResetAPITestCase):
     def setUp(self):
+        super().setUp()
         create_user()
 
     def test_returns_new_access_token(self):

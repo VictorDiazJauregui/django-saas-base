@@ -3,9 +3,9 @@ import uuid
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
+from .api_test_case import CacheResetAPITestCase
 from .user_factory import (
     DEFAULT_EMAIL,
     DEFAULT_PASSWORD,
@@ -38,8 +38,9 @@ class UserPrimaryKeyTests(TestCase):
         self.assertNotEqual(first.pk, second.pk)
 
 
-class TokenUserIdTests(APITestCase):
+class TokenUserIdTests(CacheResetAPITestCase):
     def setUp(self):
+        super().setUp()
         self.user = create_user()
 
     def log_in(self):

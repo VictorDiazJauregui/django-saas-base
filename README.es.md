@@ -16,6 +16,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [Producción](#producción)
 - [Varios proyectos en la misma máquina](#varios-proyectos-en-la-misma-máquina)
 - [API](#api)
+- [Auditoría](#auditoría)
 - [Dependencias](#dependencias)
 - [Tests y formato](#tests-y-formato)
 - [Solución de problemas](#solución-de-problemas)
@@ -334,8 +335,9 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `THROTTLE_LOGIN_RATE` | Django | Límite de `POST /api/v1/auth/login/` | `10/10m` |
 | `THROTTLE_REGISTER_RATE` | Django | Límite de `POST /api/v1/auth/register/` | `5/h` |
 | `THROTTLE_PASSWORD_RATE` | Django | Límite de los endpoints de contraseña que agregues con `throttle_scope = "password"` | `5/h` |
-| `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header | `0` |
+| `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header. La usan los límites de requests y la auditoría. Un número negativo no deja arrancar Django | `0` |
 | `CACHE_URL` | Django | Cache donde se cuentan los límites | `locmemcache://` |
+| `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Claves extra que la auditoría censura, separadas por coma. Ver [Auditoría](#auditoría) | *(vacía)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Nombre del proyecto. De él salen el volumen y la red | `saas` |
 | `DB_CONTAINER_NAME` | Compose | Nombre del contenedor de PostgreSQL | `saas_db` |
 | `DB_NAME` | Ambos | Nombre de la base | `saas_db` |
@@ -443,6 +445,39 @@ Dos cosas para configurar antes de producción:
 - **Con varios procesos** (workers de gunicorn, más de un servidor), la cache por defecto es por proceso y cada uno cuenta por su lado: 4 workers admiten 40 logins cada 10 minutos. Apuntá `CACHE_URL` a Redis (`redis://host:6379/0`) y sumá el paquete `redis` al proyecto.
 
 El panel de administración está en `/admin/`.
+
+---
+
+## Auditoría
+
+`security.middleware.AuditMiddleware` guarda cada `POST`, `PUT`, `PATCH` y `DELETE` en `AuditLog`: usuario, IP, user agent, método, path y el body JSON. Se consulta en el admin, en **Security › Audit Logs**.
+
+En el admin la auditoría es de solo lectura: nadie, ni siquiera un superusuario, puede agregar, editar o borrar registros. Un usuario staff necesita el permiso `security.view_auditlog` para verla.
+
+### IP del cliente
+
+La IP sale de `core.client_ip.get_client_ip`, la misma función que usan los límites de requests, así que los dos ven el mismo cliente.
+
+| `TRUSTED_PROXY_COUNT` | IP guardada | Cuándo |
+|---|---|---|
+| `0` (default) | La dirección de la conexión. `X-Forwarded-For` se ignora | Django recibe las requests directo |
+| `1` | La última entrada de `X-Forwarded-For` | Un proxy o load balancer adelante |
+| `N` | La N-ésima entrada desde la derecha | N proxies, cada uno agrega su entrada |
+
+Cada proxy agrega a la derecha del header la dirección que vio, y lo que queda más a la izquierda lo puede escribir el cliente. Si la entrada elegida no es una IP válida, o no hay header, se guarda la dirección de la conexión.
+
+### Valores censurados
+
+Los valores cuya clave parece una credencial se guardan como `[REDACTED]`, a cualquier profundidad del body. Las claves se comparan en minúsculas y sin `-` ni `_`, así que `api_key`, `apiKey` y `API-Key` son la misma clave.
+
+| Regla | Claves |
+|---|---|
+| Contiene | `password`, `passwd`, `token`, `secret`, `apikey`, `authorization`, `credential`, `privatekey` |
+| Es exactamente | `otp`, `pin`, `cvv`, `cvc`, `cardnumber`, `ssn`, `access`, `refresh` |
+
+Las palabras cortas solo coinciden con la clave entera: como fragmento, `pin` también ocultaría `shipping`. Para claves propias del proyecto, listalas en `AUDIT_EXTRA_SENSITIVE_KEYS`. Coinciden con la clave entera después de la misma normalización: `AUDIT_EXTRA_SENSITIVE_KEYS=tax-id,iban` censura `tax_id`, `taxId` e `IBAN`, pero no `tax_id_type`.
+
+Los registros guardados antes de sumar una clave conservan su valor.
 
 ---
 

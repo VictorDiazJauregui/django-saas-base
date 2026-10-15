@@ -70,3 +70,11 @@ jobs:
 
       - name: Tests
         run: uv run python manage.py test
+
+      # Same settings a real deployment gets: fails on any security warning.
+      - name: Deploy checks with production settings
+        env:
+          ENVIRONMENT: prod
+          ALLOWED_HOSTS: api.example.com
+          SECRET_KEY: ci-only-production-like-secret-key-0123456789-abcdefghij
+        run: uv run python manage.py check --deploy --fail-level WARNING

@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -48,6 +50,25 @@ class UserAdminTests(AdminTestCase):
         )
 
         self.assertContains(response, user.email)
+
+    def test_changes_password_from_the_user_uuid_url(self):
+        user = create_user()
+        new_password = "An0ther-Passphrase-42"
+        form_data = {"password1": new_password, "password2": new_password}
+
+        self.client.post(
+            reverse("admin:auth_user_password_change", args=[user.pk]), form_data
+        )
+
+        user.refresh_from_db()
+        self.assertTrue(user.check_password(new_password))
+
+    def test_redirects_when_the_user_uuid_does_not_exist(self):
+        response = self.client.get(
+            reverse("admin:security_user_change", args=[uuid.uuid4()])
+        )
+
+        self.assertRedirects(response, reverse("admin:index"))
 
 
 class AuditLogAdminTests(AdminTestCase):

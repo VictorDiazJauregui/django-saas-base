@@ -3,10 +3,21 @@ import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils.translation import gettext_lazy as _
 
 
 class UserManager(BaseUserManager):
+    @classmethod
+    def normalize_email(cls, email):
+        return (email or "").strip().lower()
+
+    def get_by_natural_key(self, email):
+        return self.get(email__iexact=email)
+
+    def is_email_taken(self, email):
+        return self.filter(email__iexact=email).exists()
+
     def create_user(self, email, password, **extra_fields):
         if not email:
             raise ValueError(_("The Email must be set"))
@@ -38,6 +49,23 @@ class User(AbstractUser):
     REQUIRED_FIELDS = []
 
     objects = UserManager()
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"), name="unique_user_email_ignoring_case"
+            )
+        ]
+
+    # clean() lowercases the email, so the unique check of the field already reports a duplicate
+    # in any case. Validating this constraint too would show the same error twice in forms; the
+    # database still enforces it.
+    def validate_constraints(self, exclude=None):
+        super().validate_constraints(exclude={*(exclude or ()), "email"})
+
+    def save(self, *args, **kwargs):
+        self.email = type(self).objects.normalize_email(self.email)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.email

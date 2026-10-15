@@ -332,6 +332,11 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `DB_PORT` | Both | Database port on your machine | `5432` |
 | `ADMIN_EMAIL` | Django | Email of the superuser created by `create_admin_auto` | `admin@example.com` |
 | `ADMIN_PASSWORD` | Django | That superuser's password | *(your own)* |
+| `PASSWORD_MIN_LENGTH` | Django | Minimum password length | `8` |
+| `PASSWORD_REQUIRE_UPPERCASE` | Django | Passwords need an uppercase letter (`A-Z`) | `True` |
+| `PASSWORD_REQUIRE_LOWERCASE` | Django | Passwords need a lowercase letter (`a-z`) | `True` |
+| `PASSWORD_REQUIRE_DIGIT` | Django | Passwords need a digit (`0-9`) | `True` |
+| `PASSWORD_REQUIRE_SYMBOL` | Django | Passwords need a symbol (ASCII punctuation, such as `!`, `#`, `-`, `_`) | `True` |
 
 Two details worth knowing:
 
@@ -369,6 +374,14 @@ Routes you add require authentication by default: send the token in the `Authori
 
 The `user_id` claim of both tokens is the user's UUID as a string, for example
 `"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
+
+Emails are stored in lowercase and without surrounding spaces, and they are unique regardless of case: registering `Jane@Example.com` when `jane@example.com` exists returns `400`. Login accepts the email in any case.
+
+The password policy applies to the API and the admin. By default a password needs 8 characters, an uppercase letter, a lowercase letter, a digit and a symbol, and it can't be too similar to the email or the name. Only ASCII counts: `ñ` or `€` are allowed but don't meet any rule. Each rule can be changed with the `PASSWORD_*` variables. A registration that breaks several rules gets every message in `password`:
+
+```json
+{"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}
+```
 
 The admin panel is at `/admin/`.
 

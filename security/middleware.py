@@ -1,5 +1,6 @@
-import ipaddress
 import json
+
+from core.client_ip import get_client_ip
 
 from .models import AuditLog
 from .redaction import redact_sensitive_values
@@ -12,13 +13,6 @@ JSON_CONTENT_TYPE = "application/json"
 def truncate_to_column_length(field_name, value):
     max_length = AuditLog._meta.get_field(field_name).max_length
     return value[:max_length]
-
-
-def parse_ip_address(candidate):
-    try:
-        return str(ipaddress.ip_address(candidate.strip()))
-    except ValueError:
-        return None
 
 
 class AuditMiddleware:
@@ -48,7 +42,7 @@ class AuditMiddleware:
         user_agent = request.META.get("HTTP_USER_AGENT", "")
         AuditLog.objects.create(
             user=self.resolve_user(request),
-            ip_address=self.get_client_ip(request),
+            ip_address=get_client_ip(request),
             user_agent=truncate_to_column_length("user_agent", user_agent),
             method=request.method,
             path=truncate_to_column_length("path", request.path),
@@ -62,10 +56,3 @@ class AuditMiddleware:
         if request.user.is_authenticated:
             return request.user
         return None
-
-    def get_client_ip(self, request):
-        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
-        forwarded_address = parse_ip_address(forwarded_for.split(",")[0])
-        if forwarded_address is not None:
-            return forwarded_address
-        return parse_ip_address(request.META.get("REMOTE_ADDR", ""))

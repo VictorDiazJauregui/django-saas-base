@@ -62,6 +62,9 @@ jobs:
       - name: Format
         run: uv run black --check .
 
+      - name: Lint
+        run: uv run ruff check .
+
       - name: Missing migrations
         run: uv run python manage.py makemigrations --check --dry-run
 

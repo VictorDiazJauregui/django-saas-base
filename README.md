@@ -30,7 +30,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 
 - **Django 5.2 LTS** and **Django REST Framework**, with **JWT** authentication.
 - **PostgreSQL 18** in Docker Compose, configured through variables.
-- **Custom user** that logs in with an email.
+- **Custom user** that logs in with an email and has a random UUID as primary key.
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
 - **Admin panel** to manage users and browse the audit log.
 - **Internationalization** ready for English and Spanish.
@@ -367,6 +367,9 @@ With that, each one has its own container, data volume, network and ports, and t
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
+The `user_id` claim of both tokens is the user's UUID as a string, for example
+`"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
+
 The admin panel is at `/admin/`.
 
 ---
@@ -398,6 +401,7 @@ The tests need the database running (step 3).
 | Run the tests | `uv run python manage.py test` | `python manage.py test` |
 | Check formatting | `uv run black --check .` | `black --check .` |
 | Apply formatting | `uv run black .` | `black .` |
+| Lint | `uv run ruff check .` | `ruff check .` |
 
 ---
 

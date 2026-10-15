@@ -12,6 +12,7 @@ what changed, and what a client built on this base has to do. -->
 ### How it was checked
 
 - [ ] `uv run black --check .`
+- [ ] `uv run ruff check .`
 - [ ] `uv run python manage.py makemigrations --check --dry-run`
 - [ ] `uv run python manage.py test`
 - [ ] Tests added or updated (a fix comes with a test that fails without it)

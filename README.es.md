@@ -30,7 +30,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 
 - **Django 5.2 LTS** y **Django REST Framework**, con autenticación **JWT**.
 - **PostgreSQL 18** en Docker Compose, configurado por variables.
-- **Usuario personalizado** que inicia sesión con su email.
+- **Usuario personalizado** que inicia sesión con su email y tiene un UUID aleatorio como clave primaria.
 - **Auditoría:** cada request que modifica datos queda registrada, con los datos sensibles censurados.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Internacionalización** preparada para inglés y español.
@@ -367,6 +367,9 @@ Con eso, cada uno tiene su contenedor, su volumen de datos, su red y sus puertos
 
 Las rutas que agregues exigen autenticación por omisión: enviá el token en el header `Authorization: Bearer <access>`.
 
+El claim `user_id` de los dos tokens es el UUID del usuario como string, por ejemplo
+`"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
+
 El panel de administración está en `/admin/`.
 
 ---
@@ -398,6 +401,7 @@ Los tests necesitan la base de datos levantada (paso 3).
 | Correr los tests | `uv run python manage.py test` | `python manage.py test` |
 | Comprobar el formato | `uv run black --check .` | `black --check .` |
 | Aplicar el formato | `uv run black .` | `black .` |
+| Correr el linter | `uv run ruff check .` | `ruff check .` |
 
 ---
 

@@ -89,6 +89,17 @@ class AuditLogAdmin(admin.ModelAdmin):
         "pretty_payload",
     )
 
+    # An audit trail that admins can edit proves nothing, so not even superusers can
+    # add, change or delete records here.
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     @admin.display(description="Payload")
     def short_payload(self, obj):
         if not obj.payload:

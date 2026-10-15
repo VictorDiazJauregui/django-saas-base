@@ -2,8 +2,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
 
+from .api_test_case import CacheResetAPITestCase
 from .user_factory import build_registration_payload, create_superuser
 
 User = get_user_model()
@@ -20,7 +20,7 @@ def register_with_password(client, password, **overrides):
     return client.post(REGISTER_URL, payload, format="json")
 
 
-class RegistrationPasswordPolicyTests(APITestCase):
+class RegistrationPasswordPolicyTests(CacheResetAPITestCase):
     def test_rejects_a_password_similar_to_the_email(self):
         response = register_with_password(
             self.client, "juanperez", email="juanperez@example.com", first_name="Juan"

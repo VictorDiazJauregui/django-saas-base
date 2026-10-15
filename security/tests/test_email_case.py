@@ -7,8 +7,8 @@ from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
 
+from .api_test_case import CacheResetAPITestCase
 from .user_factory import (
     DEFAULT_EMAIL,
     DEFAULT_PASSWORD,
@@ -30,7 +30,7 @@ def count_mailbox_rows(email):
     return User.objects.filter(email__iexact=email).count()
 
 
-class RegistrationEmailCaseTests(APITestCase):
+class RegistrationEmailCaseTests(CacheResetAPITestCase):
     def test_rejects_the_same_mailbox_in_other_case(self):
         create_user()
         payload = build_registration_payload(email=UPPERCASE_EMAIL)
@@ -51,7 +51,7 @@ class RegistrationEmailCaseTests(APITestCase):
         self.assertTrue(User.objects.filter(email=DEFAULT_EMAIL).exists())
 
 
-class LoginEmailCaseTests(APITestCase):
+class LoginEmailCaseTests(CacheResetAPITestCase):
     @classmethod
     def setUpTestData(cls):
         create_user()

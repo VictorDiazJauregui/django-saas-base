@@ -1,9 +1,9 @@
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
 
 from security.models import AuditLog
 
+from .api_test_case import CacheResetAPITestCase
 from .user_factory import (
     DEFAULT_EMAIL,
     DEFAULT_PASSWORD,
@@ -19,7 +19,7 @@ COLUMN_MAX_LENGTH = 255
 UNDECODABLE_JSON_BODY = b'{"email": "\xff"}'
 
 
-class AuditTrailTests(APITestCase):
+class AuditTrailTests(CacheResetAPITestCase):
     def test_records_modifying_request(self):
         self.client.post(REGISTER_URL, build_registration_payload(), format="json")
 
@@ -75,7 +75,7 @@ class AuditTrailTests(APITestCase):
         self.assertEqual(AuditLog.objects.get().payload, {})
 
 
-class AuditPayloadRedactionTests(APITestCase):
+class AuditPayloadRedactionTests(CacheResetAPITestCase):
     def test_redacts_password_on_registration(self):
         self.client.post(REGISTER_URL, build_registration_payload(), format="json")
 
@@ -97,7 +97,7 @@ class AuditPayloadRedactionTests(APITestCase):
         self.assertNotIn(DEFAULT_PASSWORD, str(AuditLog.objects.get().payload))
 
 
-class AuditResilienceTests(APITestCase):
+class AuditResilienceTests(CacheResetAPITestCase):
     def test_truncates_oversized_user_agent(self):
         oversized_user_agent = "a" * (COLUMN_MAX_LENGTH + 45)
 

@@ -8,11 +8,19 @@ from pathlib import Path
 import environ
 from django.utils.translation import gettext_lazy as _
 
-# Initialize django-environ
-env = environ.Env(
-    # set casting, default value
-    DEBUG=(bool, False)
+from core.environment import (
+    default_allowed_hosts,
+    is_deployed,
+    silenced_hsts_checks,
+    validate_allowed_hosts,
+    validate_csrf_trusted_origins,
+    validate_debug,
+    validate_environment,
 )
+from core.throttle_rates import validate_rate
+
+# Initialize django-environ
+env = environ.Env()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,13 +29,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 environ.Env.read_env(BASE_DIR / ".env")
 
 # --- Core Settings ---
+ENVIRONMENT = validate_environment(env.str("ENVIRONMENT"))
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env("SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env("DEBUG")
+DEBUG = validate_debug(env.bool("DEBUG", default=False), ENVIRONMENT)
 
-ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"] if DEBUG else ["localhost"])
+ALLOWED_HOSTS = validate_allowed_hosts(
+    env.list("ALLOWED_HOSTS", default=default_allowed_hosts(ENVIRONMENT, DEBUG)),
+    ENVIRONMENT,
+)
 
 APP_PORT = env.str("APP_PORT", default="8000")
 
@@ -151,14 +163,58 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
+# --- Cache ---
+# Throttling counts requests here. locmem is per process: use Redis with several workers.
+CACHES = {"default": env.cache_url("CACHE_URL", default="locmemcache://")}
+
+
 # --- Django Rest Framework (DRF) ---
+# An empty rate means no limit for that scope.
+THROTTLE_RATE_DEFAULTS = {
+    "anon": "",
+    "user": "",
+    "login": "10/10m",
+    "register": "5/h",
+    "password": "5/h",
+}
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    "DEFAULT_THROTTLE_CLASSES": (
+        "core.throttling.AnonRateThrottle",
+        "core.throttling.UserRateThrottle",
+        "core.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        scope: validate_rate(env.str(f"THROTTLE_{scope.upper()}_RATE", default=rate))
+        for scope, rate in THROTTLE_RATE_DEFAULTS.items()
+    },
+    # Without it DRF identifies clients by the whole X-Forwarded-For header, which the
+    # client controls: rotating it would skip every limit.
+    "NUM_PROXIES": env.int("TRUSTED_PROXY_COUNT", default=0),
 }
 
-# --- Production Settings ---
-if env("ENVIRONMENT") == "prod":
-    DEBUG = False
+# --- HTTPS and proxies ---
+# staging and prod only serve HTTPS; local and ci keep Django's plain HTTP defaults.
+DEPLOYED = is_deployed(ENVIRONMENT)
+SECURE_SSL_REDIRECT = DEPLOYED
+SESSION_COOKIE_SECURE = DEPLOYED
+CSRF_COOKIE_SECURE = DEPLOYED
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=3600) if DEPLOYED else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False
+)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
+SILENCED_SYSTEM_CHECKS = silenced_hsts_checks(
+    SECURE_HSTS_INCLUDE_SUBDOMAINS, SECURE_HSTS_PRELOAD
+)
+
+if env.bool("USE_X_FORWARDED_PROTO", default=False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+CSRF_TRUSTED_ORIGINS = validate_csrf_trusted_origins(
+    env.list("CSRF_TRUSTED_ORIGINS", default=[]), ENVIRONMENT
+)

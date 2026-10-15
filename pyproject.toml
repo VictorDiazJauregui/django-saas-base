@@ -17,6 +17,7 @@ dev = [
     "black>=25.12.0,<26",
     "django-extensions>=4.1,<5",
     "ipython>=9.9.0,<10",
+    "ruff>=0.16.10,<0.17",
 ]
 
 [tool.uv]
@@ -24,3 +25,16 @@ package = false
 
 [tool.black]
 extend-exclude = "/migrations/"
+
+[tool.ruff]
+# Same as black: migrations are generated code.
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "DJ"]
+# black owns line length and does not split strings or comments.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use fixed passwords as fixture data.
+"*/tests/*" = ["S105", "S106"]

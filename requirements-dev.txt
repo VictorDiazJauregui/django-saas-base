@@ -65,6 +65,7 @@ pyjwt==2.15.1
     # via djangorestframework-simplejwt
 pytokens==0.4.1
     # via black
+ruff==0.16.10
 sqlparse==0.6.0
     # via django
 stack-data==0.6.3

@@ -109,6 +109,36 @@ class LoginThrottleTests(ThrottledTestCase):
 
         self.assertEqual(statuses[2], status.HTTP_429_TOO_MANY_REQUESTS)
 
+    @override_settings(TRUSTED_PROXY_COUNT=1)
+    @override_rates(login="2/10m")
+    def test_rotating_the_entries_before_the_proxy_does_not_bypass_the_limit(self):
+        statuses = [
+            self.post_wrong_logins(
+                1, HTTP_X_FORWARDED_FOR=f"198.51.100.{number}, 203.0.113.9"
+            )[0]
+            for number in range(3)
+        ]
+
+        self.assertEqual(statuses[2], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(TRUSTED_PROXY_COUNT=1)
+    @override_rates(login="2/10m")
+    def test_rotating_invalid_entries_does_not_bypass_the_limit(self):
+        statuses = [
+            self.post_wrong_logins(1, HTTP_X_FORWARDED_FOR=f"garbage-{number}")[0]
+            for number in range(3)
+        ]
+
+        self.assertEqual(statuses[2], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(TRUSTED_PROXY_COUNT=1)
+    @override_rates(login="1/10m")
+    def test_clients_behind_the_same_proxy_have_separate_limits(self):
+        first = self.post_wrong_logins(1, HTTP_X_FORWARDED_FOR="203.0.113.1")
+        second = self.post_wrong_logins(1, HTTP_X_FORWARDED_FOR="203.0.113.2")
+
+        self.assertEqual(first + second, [status.HTTP_401_UNAUTHORIZED] * 2)
+
     @override_rates(login=None)
     def test_empty_rate_means_no_limit(self):
         statuses = self.post_wrong_logins(11)

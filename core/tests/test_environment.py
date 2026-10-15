@@ -9,6 +9,7 @@ from core.environment import (
     validate_csrf_trusted_origins,
     validate_debug,
     validate_environment,
+    validate_trusted_proxy_count,
 )
 
 
@@ -103,3 +104,14 @@ class SilencedHstsChecksTests(SimpleTestCase):
         self.assertEqual(
             silenced_hsts_checks(include_subdomains=True, preload=True), []
         )
+
+
+class TrustedProxyCountTests(SimpleTestCase):
+    def test_accepts_zero_and_positive_counts(self):
+        for count in (0, 1, 3):
+            with self.subTest(count=count):
+                self.assertEqual(validate_trusted_proxy_count(count), count)
+
+    def test_rejects_negative_counts(self):
+        with self.assertRaisesMessage(ImproperlyConfigured, "TRUSTED_PROXY_COUNT=-1"):
+            validate_trusted_proxy_count(-1)

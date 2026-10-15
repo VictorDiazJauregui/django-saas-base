@@ -21,6 +21,7 @@ PRODUCTION_ENVIRONMENT = {
     "SECURE_HSTS_PRELOAD": "False",
     "USE_X_FORWARDED_PROTO": "False",
     "TRUSTED_PROXY_COUNT": "0",
+    "AUDIT_EXTRA_SENSITIVE_KEYS": "",
     "CACHE_URL": "locmemcache://",
     "THROTTLE_ANON_RATE": "",
     "THROTTLE_USER_RATE": "",

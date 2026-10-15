@@ -16,6 +16,7 @@ from core.environment import (
     validate_csrf_trusted_origins,
     validate_debug,
     validate_environment,
+    validate_trusted_proxy_count,
 )
 from core.throttle_rates import validate_rate
 
@@ -168,6 +169,17 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 CACHES = {"default": env.cache_url("CACHE_URL", default="locmemcache://")}
 
 
+# --- Client IP ---
+# Shared by the audit log and the throttling through core.client_ip.get_client_ip.
+TRUSTED_PROXY_COUNT = validate_trusted_proxy_count(
+    env.int("TRUSTED_PROXY_COUNT", default=0)
+)
+
+
+# --- Audit log ---
+AUDIT_EXTRA_SENSITIVE_KEYS = env.list("AUDIT_EXTRA_SENSITIVE_KEYS", default=[])
+
+
 # --- Django Rest Framework (DRF) ---
 # An empty rate means no limit for that scope.
 THROTTLE_RATE_DEFAULTS = {
@@ -194,7 +206,7 @@ REST_FRAMEWORK = {
     },
     # Without it DRF identifies clients by the whole X-Forwarded-For header, which the
     # client controls: rotating it would skip every limit.
-    "NUM_PROXIES": env.int("TRUSTED_PROXY_COUNT", default=0),
+    "NUM_PROXIES": TRUSTED_PROXY_COUNT,
 }
 
 # --- HTTPS and proxies ---

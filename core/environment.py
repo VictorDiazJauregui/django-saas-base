@@ -67,3 +67,12 @@ def silenced_hsts_checks(include_subdomains, preload):
     if not preload:
         silenced.append("security.W021")
     return silenced
+
+
+def validate_trusted_proxy_count(count):
+    if count < 0:
+        raise ImproperlyConfigured(
+            f"TRUSTED_PROXY_COUNT={count} is not valid. Use 0 without a proxy, or the "
+            "number of proxies in front of Django that append to X-Forwarded-For."
+        )
+    return count

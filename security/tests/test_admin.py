@@ -2,7 +2,8 @@ import uuid
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.contrib.auth.models import Permission
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from security.models import AuditLog
@@ -90,3 +91,107 @@ class AuditLogAdminTests(AdminTestCase):
         )
 
         self.assertContains(response, "a@b.co")
+
+
+class ReadOnlyAuditLogAdminTests(AdminTestCase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.entry = AuditLog.objects.create(
+            method="POST", path="/api/v1/auth/login/", payload={"email": "a@b.co"}
+        )
+
+    def change_url(self):
+        return reverse("admin:security_auditlog_change", args=[self.entry.pk])
+
+    def delete_url(self):
+        return reverse("admin:security_auditlog_delete", args=[self.entry.pk])
+
+    def test_add_form_is_forbidden(self):
+        response = self.client.get(reverse("admin:security_auditlog_add"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_add_submit_is_forbidden_and_creates_nothing(self):
+        response = self.client.post(reverse("admin:security_auditlog_add"), {})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(AuditLog.objects.filter(method="").exists())
+
+    def test_change_submit_is_forbidden(self):
+        response = self.client.post(self.change_url(), {"_save": "Save"})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_confirmation_is_forbidden(self):
+        response = self.client.get(self.delete_url())
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_submit_is_forbidden_and_keeps_the_entry(self):
+        response = self.client.post(self.delete_url(), {"post": "yes"})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(AuditLog.objects.filter(pk=self.entry.pk).exists())
+
+    def test_bulk_delete_action_is_not_offered(self):
+        request = RequestFactory().get(reverse("admin:security_auditlog_changelist"))
+        request.user = self.superuser
+
+        actions = admin.site.get_model_admin(AuditLog).get_actions(request)
+
+        self.assertNotIn("delete_selected", actions)
+
+    def test_list_has_no_add_link(self):
+        response = self.client.get(reverse("admin:security_auditlog_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse("admin:security_auditlog_add"))
+
+    def test_detail_is_shown_without_save_or_delete(self):
+        response = self.client.get(self.change_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="_save"')
+        self.assertNotContains(response, self.delete_url())
+
+
+class AuditLogAdminPermissionTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.entry = AuditLog.objects.create(method="POST", path="/api/v1/x/")
+        cls.staff = create_user(email="staff@example.com")
+        cls.staff.is_staff = True
+        cls.staff.save()
+
+    def grant_view_permission(self):
+        permission = Permission.objects.get(codename="view_auditlog")
+        self.staff.user_permissions.add(permission)
+
+    def test_staff_without_permission_cannot_list(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("admin:security_auditlog_changelist"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_with_view_permission_can_list_and_open(self):
+        self.grant_view_permission()
+        self.client.force_login(self.staff)
+        change_url = reverse("admin:security_auditlog_change", args=[self.entry.pk])
+
+        list_response = self.client.get(reverse("admin:security_auditlog_changelist"))
+        detail_response = self.client.get(change_url)
+
+        self.assertEqual(
+            [list_response.status_code, detail_response.status_code], [200, 200]
+        )
+
+    def test_staff_with_view_permission_cannot_delete(self):
+        self.grant_view_permission()
+        self.client.force_login(self.staff)
+        delete_url = reverse("admin:security_auditlog_delete", args=[self.entry.pk])
+
+        response = self.client.post(delete_url, {"post": "yes"})
+
+        self.assertEqual(response.status_code, 403)

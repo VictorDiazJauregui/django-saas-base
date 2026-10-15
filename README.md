@@ -16,6 +16,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - [Production](#production)
 - [Several projects on the same machine](#several-projects-on-the-same-machine)
 - [API](#api)
+- [Audit log](#audit-log)
 - [Dependencies](#dependencies)
 - [Tests and formatting](#tests-and-formatting)
 - [Troubleshooting](#troubleshooting)
@@ -334,8 +335,9 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `THROTTLE_LOGIN_RATE` | Django | Limit for `POST /api/v1/auth/login/` | `10/10m` |
 | `THROTTLE_REGISTER_RATE` | Django | Limit for `POST /api/v1/auth/register/` | `5/h` |
 | `THROTTLE_PASSWORD_RATE` | Django | Limit for the password endpoints you add with `throttle_scope = "password"` | `5/h` |
-| `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header | `0` |
+| `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header. Used by the rate limits and the audit log. A negative number stops Django from starting | `0` |
 | `CACHE_URL` | Django | Cache where the limits are counted | `locmemcache://` |
+| `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Extra keys the audit log redacts, comma separated. See [Audit log](#audit-log) | *(empty)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
 | `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
 | `DB_NAME` | Both | Database name | `saas_db` |
@@ -443,6 +445,39 @@ Two things to set before production:
 - **With several processes** (gunicorn workers, more than one server), the default cache is per process and each one counts on its own: 4 workers allow 40 logins every 10 minutes. Point `CACHE_URL` at Redis (`redis://host:6379/0`) and add the `redis` package to the project.
 
 The admin panel is at `/admin/`.
+
+---
+
+## Audit log
+
+`security.middleware.AuditMiddleware` stores every `POST`, `PUT`, `PATCH` and `DELETE` in `AuditLog`: user, IP, user agent, method, path and the JSON body. You can browse it in the admin under **Security › Audit Logs**.
+
+The admin shows the audit log read-only: nobody, superusers included, can add, edit or delete records there. Staff users need the `security.view_auditlog` permission to see it.
+
+### Client IP
+
+The IP comes from `core.client_ip.get_client_ip`, the same function the rate limits use, so both see the same client.
+
+| `TRUSTED_PROXY_COUNT` | IP stored | When |
+|---|---|---|
+| `0` (default) | The connection address. `X-Forwarded-For` is ignored | Django receives the requests directly |
+| `1` | The last entry of `X-Forwarded-For` | One proxy or load balancer in front |
+| `N` | The Nth entry from the right | N proxies, each appending its own entry |
+
+Each proxy appends the address it saw to the right of the header, and anything further left can be written by the client. If the chosen entry isn't a valid IP, or the header is missing, the connection address is stored.
+
+### Redacted values
+
+Values whose key looks like a credential are stored as `[REDACTED]`, at any depth of the body. Keys are compared in lowercase and without `-` or `_`, so `api_key`, `apiKey` and `API-Key` are the same key.
+
+| Rule | Keys |
+|---|---|
+| Contains | `password`, `passwd`, `token`, `secret`, `apikey`, `authorization`, `credential`, `privatekey` |
+| Is exactly | `otp`, `pin`, `cvv`, `cvc`, `cardnumber`, `ssn`, `access`, `refresh` |
+
+Short words only match whole keys: as a fragment, `pin` would also hide `shipping`. For keys of your own project, list them in `AUDIT_EXTRA_SENSITIVE_KEYS`. They match whole keys after the same normalization: `AUDIT_EXTRA_SENSITIVE_KEYS=tax-id,iban` redacts `tax_id`, `taxId` and `IBAN`, but not `tax_id_type`.
+
+Records stored before a key was added keep their value.
 
 ---
 

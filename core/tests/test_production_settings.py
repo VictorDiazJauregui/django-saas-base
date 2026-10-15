@@ -127,3 +127,28 @@ class ThrottleRateStartupTests(SimpleTestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("'10/x'", result.stderr)
+
+
+class TrustedProxyCountStartupTests(SimpleTestCase):
+    def test_negative_count_fails_to_start(self):
+        result = run_manage_command(["check"], TRUSTED_PROXY_COUNT="-1")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TRUSTED_PROXY_COUNT=-1", result.stderr)
+
+    def test_count_feeds_the_audit_and_the_throttling(self):
+        values = read_settings(
+            ["TRUSTED_PROXY_COUNT", "REST_FRAMEWORK"], TRUSTED_PROXY_COUNT="2"
+        )
+
+        self.assertEqual(values["TRUSTED_PROXY_COUNT"], 2)
+        self.assertEqual(values["REST_FRAMEWORK"]["NUM_PROXIES"], 2)
+
+
+class AuditExtraSensitiveKeysStartupTests(SimpleTestCase):
+    def test_extra_keys_are_read_as_a_list(self):
+        values = read_settings(
+            ["AUDIT_EXTRA_SENSITIVE_KEYS"], AUDIT_EXTRA_SENSITIVE_KEYS="tax-id,iban"
+        )
+
+        self.assertEqual(values["AUDIT_EXTRA_SENSITIVE_KEYS"], ["tax-id", "iban"])

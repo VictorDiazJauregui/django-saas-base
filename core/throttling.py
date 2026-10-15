@@ -2,6 +2,7 @@ from django.core.exceptions import ImproperlyConfigured
 from rest_framework import throttling
 from rest_framework.settings import api_settings
 
+from core.client_ip import get_client_ip
 from core.throttle_rates import parse_rate
 
 
@@ -24,13 +25,26 @@ class ConfigurableRateMixin:
         return parse_rate(rate)
 
 
-class AnonRateThrottle(ConfigurableRateMixin, throttling.AnonRateThrottle):
+class TrustedProxyIdentMixin:
+    """Counts clients by the same IP the audit log stores."""
+
+    def get_ident(self, request):
+        return get_client_ip(request)
+
+
+class AnonRateThrottle(
+    TrustedProxyIdentMixin, ConfigurableRateMixin, throttling.AnonRateThrottle
+):
     pass
 
 
-class UserRateThrottle(ConfigurableRateMixin, throttling.UserRateThrottle):
+class UserRateThrottle(
+    TrustedProxyIdentMixin, ConfigurableRateMixin, throttling.UserRateThrottle
+):
     pass
 
 
-class ScopedRateThrottle(ConfigurableRateMixin, throttling.ScopedRateThrottle):
+class ScopedRateThrottle(
+    TrustedProxyIdentMixin, ConfigurableRateMixin, throttling.ScopedRateThrottle
+):
     pass

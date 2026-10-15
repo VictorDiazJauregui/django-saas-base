@@ -18,6 +18,7 @@ class UserRegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = (AllowAny,)
     serializer_class = UserRegisterSerializer
+    throttle_scope = "register"
 
 
 class CustomLoginView(TokenObtainPairView):
@@ -26,6 +27,8 @@ class CustomLoginView(TokenObtainPairView):
     After a successful login, it attaches the authenticated user to the request
     so the AuditMiddleware can log which user performed the login action.
     """
+
+    throttle_scope = "login"
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)

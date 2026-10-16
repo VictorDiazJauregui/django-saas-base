@@ -87,7 +87,7 @@ class LogoutErrorTests(LogoutTestCase):
         response = self.client.post(LOGOUT_URL, {}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("refresh", response.data)
+        self.assertIn("refresh", response.data["fields"])
 
     def test_get_is_not_allowed(self):
         response = self.client.get(LOGOUT_URL)

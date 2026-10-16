@@ -60,6 +60,7 @@ class ApiLockoutTests(LockoutTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response["Retry-After"], str(COOL_OFF_SECONDS))
+        self.assertEqual(response.data["code"], "account_locked_out")
         self.assertIn("Too many failed login attempts", response.data["detail"])
         self.assertIn(f"{COOL_OFF_SECONDS} seconds", response.data["detail"])
 

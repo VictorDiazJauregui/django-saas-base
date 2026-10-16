@@ -38,7 +38,7 @@ class RegistrationEmailCaseTests(CacheResetAPITestCase):
         response = self.client.post(REGISTER_URL, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["email"], [DUPLICATE_EMAIL_MESSAGE])
+        self.assertEqual(response.data["fields"]["email"], [DUPLICATE_EMAIL_MESSAGE])
         self.assertEqual(count_mailbox_rows(DEFAULT_EMAIL), 1)
 
     def test_stores_the_email_in_lowercase_without_spaces(self):

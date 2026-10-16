@@ -241,3 +241,63 @@ class AuditPayloadLimitStartupTests(SimpleTestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("AUDIT_PAYLOAD_MAX_BYTES", result.stderr)
+
+
+class CorsStartupTests(SimpleTestCase):
+    def test_no_origin_is_allowed_by_default(self):
+        values = read_settings(["CORS_ALLOWED_ORIGINS"])
+
+        self.assertEqual(values["CORS_ALLOWED_ORIGINS"], [])
+
+    def test_origins_are_read_as_a_list(self):
+        values = read_settings(
+            ["CORS_ALLOWED_ORIGINS"],
+            CORS_ALLOWED_ORIGINS="https://app.example.com,http://localhost:5173",
+        )
+
+        self.assertEqual(
+            values["CORS_ALLOWED_ORIGINS"],
+            ["https://app.example.com", "http://localhost:5173"],
+        )
+
+    def test_an_origin_without_scheme_fails_to_start(self):
+        for origin in ("*", "app.example.com"):
+            with self.subTest(origin=origin):
+                result = run_manage_command(["check"], CORS_ALLOWED_ORIGINS=origin)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("corsheaders.E013", result.stderr)
+
+
+class PaginationStartupTests(SimpleTestCase):
+    def test_page_sizes_are_read_as_numbers(self):
+        values = read_settings(
+            ["API_PAGE_SIZE", "API_MAX_PAGE_SIZE"],
+            API_PAGE_SIZE="50",
+            API_MAX_PAGE_SIZE="500",
+        )
+
+        self.assertEqual(values["API_PAGE_SIZE"], 50)
+        self.assertEqual(values["API_MAX_PAGE_SIZE"], 500)
+
+    def test_invalid_page_sizes_fail_to_start(self):
+        cases = (
+            ("API_PAGE_SIZE", "0"),
+            ("API_PAGE_SIZE", "abc"),
+            ("API_MAX_PAGE_SIZE", "-1"),
+        )
+        for variable, value in cases:
+            with self.subTest(variable=variable, value=value):
+                result = run_manage_command(["check"], **{variable: value})
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(variable, result.stderr)
+
+    def test_page_size_above_the_maximum_fails_to_start(self):
+        result = run_manage_command(
+            ["check"], API_PAGE_SIZE="200", API_MAX_PAGE_SIZE="100"
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("API_PAGE_SIZE=200", result.stderr)
+        self.assertIn("API_MAX_PAGE_SIZE=100", result.stderr)

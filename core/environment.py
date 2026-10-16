@@ -78,16 +78,24 @@ def validate_trusted_proxy_count(count):
     return count
 
 
-def parse_positive_int(name, raw_value):
+def parse_int_at_least(name, raw_value, minimum):
     try:
         value = int(raw_value)
     except ValueError:
-        value = 0
-    if value < 1:
+        value = minimum - 1
+    if value < minimum:
         raise ImproperlyConfigured(
-            f"{name}={raw_value!r} is not valid. Use a whole number greater than 0."
+            f"{name}={raw_value!r} is not valid. Use a whole number of {minimum} or more."
         )
     return value
+
+
+def parse_positive_int(name, raw_value):
+    return parse_int_at_least(name, raw_value, minimum=1)
+
+
+def parse_non_negative_int(name, raw_value):
+    return parse_int_at_least(name, raw_value, minimum=0)
 
 
 LOCKOUT_FIELDS = ("username", "ip_address", "user_agent")

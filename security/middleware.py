@@ -1,13 +1,10 @@
-import json
-
 from core.client_ip import get_client_ip
 
+from .audit_payload import BODY_METHODS, read_audit_payload
 from .models import AuditLog
 from .redaction import redact_sensitive_values
 
-BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
 AUDITED_METHODS = BODY_METHODS | {"DELETE"}
-JSON_CONTENT_TYPE = "application/json"
 
 
 def truncate_to_column_length(field_name, value):
@@ -22,23 +19,13 @@ class AuditMiddleware:
     def __call__(self, request):
         # The body is read before the view runs: once the view consumes the stream
         # it can no longer be read.
-        payload = self.read_json_payload(request)
+        payload = read_audit_payload(request)
         response = self.get_response(request)
         if request.method in AUDITED_METHODS:
-            self.record_request(request, payload)
+            self.record_request(request, response, payload)
         return response
 
-    def read_json_payload(self, request):
-        if request.method not in BODY_METHODS:
-            return {}
-        if request.content_type != JSON_CONTENT_TYPE:
-            return {}
-        try:
-            return json.loads(request.body)
-        except ValueError:
-            return {}
-
-    def record_request(self, request, payload):
+    def record_request(self, request, response, payload):
         user_agent = request.META.get("HTTP_USER_AGENT", "")
         AuditLog.objects.create(
             user=self.resolve_user(request),
@@ -47,6 +34,7 @@ class AuditMiddleware:
             method=request.method,
             path=truncate_to_column_length("path", request.path),
             payload=redact_sensitive_values(payload),
+            status_code=response.status_code,
         )
 
     def resolve_user(self, request):

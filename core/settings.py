@@ -13,6 +13,7 @@ from core.environment import (
     default_allowed_hosts,
     is_deployed,
     parse_lockout_parameters,
+    parse_non_negative_int,
     parse_positive_int,
     silenced_hsts_checks,
     validate_allowed_hosts,
@@ -191,6 +192,9 @@ TRUSTED_PROXY_COUNT = validate_trusted_proxy_count(
 
 # --- Audit log ---
 AUDIT_EXTRA_SENSITIVE_KEYS = env.list("AUDIT_EXTRA_SENSITIVE_KEYS", default=[])
+AUDIT_PAYLOAD_MAX_BYTES = parse_non_negative_int(
+    "AUDIT_PAYLOAD_MAX_BYTES", env.str("AUDIT_PAYLOAD_MAX_BYTES", default="65536")
+)
 
 
 # --- Django Rest Framework (DRF) ---

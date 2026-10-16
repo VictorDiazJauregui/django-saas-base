@@ -1,0 +1,3 @@
+{% load i18n %}{% autoescape off %}{% translate "Someone tried to create an account with this email, but it already has one. Nothing changed in your account." %}
+
+{% translate "If it was you, log in as usual or reset your password if you forgot it. If it wasn't you, you can ignore this email." %}{% endautoescape %}

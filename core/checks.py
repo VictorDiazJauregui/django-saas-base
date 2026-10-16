@@ -59,3 +59,31 @@ def check_example_values(app_configs, **kwargs):
         for value in EXAMPLE_VALUES
         if value.read_current() == value.example
     ]
+
+
+NON_DELIVERING_EMAIL_BACKENDS = frozenset(
+    {
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
+        "django.core.mail.backends.locmem.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+    }
+)
+
+
+# A deployment without EMAIL_URL starts fine and only prints the emails to its log: password
+# resets and verifications never reach anyone, and nobody notices.
+@register()
+def check_email_backend(app_configs, **kwargs):
+    if not is_deployed(settings.ENVIRONMENT):
+        return []
+    if settings.EMAIL_BACKEND not in NON_DELIVERING_EMAIL_BACKENDS:
+        return []
+    return [
+        Warning(
+            "EMAIL_URL does not deliver emails: password reset and verification "
+            "emails will not reach anyone.",
+            hint="Set EMAIL_URL to your SMTP provider in .env.",
+            id="core.W004",
+        )
+    ]

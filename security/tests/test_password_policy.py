@@ -29,7 +29,7 @@ class RegistrationPasswordPolicyTests(CacheResetAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(
             "The password is too similar to the email address.",
-            response.data["password"],
+            response.data["fields"]["password"],
         )
         self.assertFalse(User.objects.filter(email="juanperez@example.com").exists())
 
@@ -37,13 +37,13 @@ class RegistrationPasswordPolicyTests(CacheResetAPITestCase):
         response = register_with_password(self.client, NO_SYMBOL_PASSWORD)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(len(response.data["password"]), 1)
+        self.assertEqual(len(response.data["fields"]["password"]), 1)
 
     def test_returns_every_broken_rule_at_once(self):
         response = register_with_password(self.client, "kestrel")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(len(response.data["password"]), 4)
+        self.assertEqual(len(response.data["fields"]["password"]), 4)
 
     def test_accepts_a_password_that_meets_every_rule(self):
         response = register_with_password(self.client, "Kestrel9Quartz!")

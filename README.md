@@ -354,6 +354,9 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `EMAIL_URL` | Django | Where emails go, as a URL. Empty: printed to the console. See [Email](#email) | *(empty)* |
 | `DEFAULT_FROM_EMAIL` | Django | Sender of the emails the project sends | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` closes `POST /api/v1/auth/register/` with `403`. See [Public registration](#public-registration) | `True` |
+| `API_PAGE_SIZE` | Django | Items per page of a list. See [Pagination](#pagination) | `20` |
+| `API_MAX_PAGE_SIZE` | Django | Largest `?page_size=` a client can ask for. `API_PAGE_SIZE` can't be larger | `100` |
+| `CORS_ALLOWED_ORIGINS` | Django | Origins allowed to call `/api/` from a browser, comma separated, with scheme and port. Empty: none. See [CORS](#cors) | *(empty)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
 | `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
 | `DB_NAME` | Both | Database name | `saas_db` |
@@ -461,16 +464,56 @@ With that, each one has its own container, data volume, network and ports, and t
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
+The API answers JSON. Only with `DEBUG=True` does a route opened in the browser show DRF's browsable API; in `staging` and `prod` the browser gets JSON too.
+
 The `user_id` claim of both tokens is the user's UUID as a string, for example
 `"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
 
 Emails are stored in lowercase and without surrounding spaces, and they are unique regardless of case: registering `Jane@Example.com` when `jane@example.com` exists returns `400`. Login accepts the email in any case.
 
-The password policy applies to the API and the admin. By default a password needs 8 characters, an uppercase letter, a lowercase letter, a digit and a symbol, and it can't be too similar to the email or the name. Only ASCII counts: `ñ` or `€` are allowed but don't meet any rule. Each rule can be changed with the `PASSWORD_*` variables. A registration that breaks several rules gets every message in `password`:
+The password policy applies to the API and the admin. By default a password needs 8 characters, an uppercase letter, a lowercase letter, a digit and a symbol, and it can't be too similar to the email or the name. Only ASCII counts: `ñ` or `€` are allowed but don't meet any rule. Each rule can be changed with the `PASSWORD_*` variables. A registration that breaks several rules gets every message in `fields.password`:
 
 ```json
-{"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}
+{"code": "invalid", "detail": "Invalid input.", "fields": {"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}}
 ```
+
+### Errors
+
+Every error under `/api/` has the same shape, whatever its status:
+
+```json
+{"code": "invalid", "detail": "Invalid input.", "fields": {"email": ["Enter a valid email address."], "password": ["This password is too common."]}}
+```
+
+| Key | Content |
+|---|---|
+| `code` | Fixed identifier, in English, for the frontend to branch on. It doesn't change with the language |
+| `detail` | Message for a person, in the request's language (`Accept-Language`) |
+| `fields` | Messages per field, only for validation errors (`400` with `code` `invalid`). Errors that aren't tied to a field go in `non_field_errors`. Always present: `{}` when there are none |
+
+| Status | `code` |
+|---|---|
+| `400` | `invalid` (with `fields`), `parse_error` (the body isn't valid JSON) |
+| `401` | `not_authenticated` (no token), `token_not_valid` (expired, malformed or blacklisted token), `no_active_account` (wrong email or password), `authentication_failed` |
+| `403` | `permission_denied` |
+| `404` | `not_found`, also for a route that doesn't exist |
+| `405` | `method_not_allowed` |
+| `406` | `not_acceptable` (the client only accepts a format other than JSON) |
+| `429` | `throttled` (rate limit), `account_locked_out` (lockout). The wait in seconds is in the `Retry-After` header |
+| `500` | `server_error` |
+
+With `DEBUG=True` a route that doesn't exist and an unhandled error still show Django's debug page, which lists the routes and the traceback. Outside `/api/`, the admin keeps its HTML pages.
+
+The format comes from `core.exceptions.api_exception_handler`. To use your own, point `EXCEPTION_HANDLER` at it in `REST_FRAMEWORK` (`core/settings.py`):
+
+```python
+REST_FRAMEWORK = {
+    # ...
+    "EXCEPTION_HANDLER": "myproject.errors.my_exception_handler",
+}
+```
+
+The routes that don't exist and the `500` responses come from `handler404` and `handler500` in `core/urls.py`.
 
 ### Tokens
 
@@ -483,7 +526,7 @@ The `access` token lasts 5 minutes and the `refresh` token 1 day (`JWT_ACCESS_MI
 **A frontend has to store the new `refresh` after each refresh.** Sending the old one again gets `401`:
 
 ```json
-{"detail": "Token is blacklisted", "code": "token_not_valid"}
+{"code": "token_not_valid", "detail": "Token is blacklisted", "fields": {}}
 ```
 
 - Two tabs that refresh at the same time with the same token: the second one gets `401`. Share the stored token between tabs, or send the user back to login on that `401`.
@@ -524,8 +567,8 @@ curl -X POST http://localhost:8000/api/v1/auth/logout/ \
 | Status | Body | When |
 |---|---|---|
 | `200` | `{}` | The `refresh` is now blacklisted. Using it in `login/refresh/` gets `401` |
-| `400` | `{"refresh": ["This field is required."]}` | No `refresh` in the body |
-| `401` | `{"detail": "Token is blacklisted", "code": "token_not_valid"}` | The `refresh` was already used or logged out. Other messages for an expired, malformed or `access` token, always with `"code": "token_not_valid"` |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"refresh": ["This field is required."]}}` | No `refresh` in the body |
+| `401` | `{"code": "token_not_valid", "detail": "Token is blacklisted", "fields": {}}` | The `refresh` was already used or logged out. Other messages for an expired, malformed or `access` token, always with `"code": "token_not_valid"` |
 
 **The `access` token is not revoked**: it keeps working until it expires (`JWT_ACCESS_MINUTES`, 5 minutes by default). The frontend has to delete both tokens on logout. A `401` from logout means the session was already closed, so the frontend can treat it as a logout.
 
@@ -534,7 +577,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout/ \
 Registration is open by default. With `ALLOW_PUBLIC_REGISTRATION=False`, `POST /api/v1/auth/register/` answers `403` and creates nothing:
 
 ```json
-{"detail": "Public registration is disabled."}
+{"code": "permission_denied", "detail": "Public registration is disabled.", "fields": {}}
 ```
 
 Users can still be added from the admin or with `create_admin_auto`, and existing users log in as before. The rejections don't count against `THROTTLE_REGISTER_RATE`. Only `true`, `yes`, `y`, `on`, `ok` or `1` (any case) keep it open: any other value, a typo included, closes it.
@@ -551,7 +594,7 @@ curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access>"
 {"id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c", "email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "date_joined": "2026-10-16T13:20:05.123456Z"}
 ```
 
-`PATCH` changes `first_name` and `last_name` (up to 150 characters each, empty allowed) and returns the whole profile. `id`, `email` and `date_joined` are read-only: if they come in the body they are ignored without an error, and any other field too. A name that is too long gets `400` with `{"first_name": ["Ensure this field has no more than 150 characters."]}`. `PUT`, `POST` and `DELETE` get `405`.
+`PATCH` changes `first_name` and `last_name` (up to 150 characters each, empty allowed) and returns the whole profile. `id`, `email` and `date_joined` are read-only: if they come in the body they are ignored without an error, and any other field too. A name that is too long gets `400` with `{"code": "invalid", "detail": "Invalid input.", "fields": {"first_name": ["Ensure this field has no more than 150 characters."]}}`. `PUT`, `POST` and `DELETE` get `405`.
 
 Changing the email is not available here: it needs the new address verified first.
 
@@ -560,7 +603,7 @@ Changing the email is not available here: it needs the new address verified firs
 Login allows 10 requests every 10 minutes and registration 5 per hour, counted by client IP. The next request gets `429` until the period frees a slot, with the wait in seconds in the `Retry-After` header and in `detail`:
 
 ```json
-{"detail": "Request was throttled. Expected available in 542 seconds."}
+{"code": "throttled", "detail": "Request was throttled. Expected available in 542 seconds.", "fields": {}}
 ```
 
 Every request counts, whatever its result: a correct password after 10 failed attempts also gets `429`. Each limit is a `THROTTLE_*_RATE` variable written as `<requests>/<period>`, where the period is `s`, `m`, `h` or `d` with an optional multiple (`10/m`, `10/10m`, `100/6h`). An empty value turns the limit off, and an invalid one stops Django from starting. To limit a view you add, set `throttle_scope` to one of the scopes, or add yours to `THROTTLE_RATE_DEFAULTS` in `core/settings.py`.
@@ -575,7 +618,7 @@ Two things to set before production:
 After 5 failed logins for the same account from the same IP, that pair is locked for 15 minutes, in the API and in the admin. The fifth failure already gets the lockout, and so does the right password while it lasts. The API answers `429` with the same shape as the rate limits:
 
 ```json
-{"detail": "Too many failed login attempts. Expected available in 900 seconds."}
+{"code": "account_locked_out", "detail": "Too many failed login attempts. Expected available in 900 seconds.", "fields": {}}
 ```
 
 The admin shows a page with the minutes left, also with `429`.
@@ -606,6 +649,76 @@ The attempts never store the password. Successful logins are kept in "Access log
 The rate limits and the lockout complement each other: the first counts requests per IP and stops one IP trying many accounts; the second counts failures per account and stops slow attempts against one account.
 
 The admin panel is at `/admin/`.
+
+### Pagination
+
+Lists are paginated by page number. A list view (`ListAPIView`, or a `ViewSet` with `list`) returns:
+
+```json
+{"count": 134, "next": "http://localhost:8000/api/v1/items/?page=2", "previous": null, "results": [{"id": 1}, {"id": 2}]}
+```
+
+- `?page=` picks the page, from `1`. A page that doesn't exist gets `404` with `code` `not_found`.
+- `?page_size=` changes the size up to `API_MAX_PAGE_SIZE`. A larger number gets the maximum, not an error; `0`, a negative number or text gets the default.
+- `API_PAGE_SIZE` (default `20`) and `API_MAX_PAGE_SIZE` (default `100`) are read from `.env`. Zero, a negative number, text, or a page size larger than the maximum stop Django from starting.
+
+A view can change its own pagination with `pagination_class`, or turn it off with `None`:
+
+```python
+from rest_framework.pagination import LimitOffsetPagination
+
+
+class ItemListView(ListAPIView):
+    pagination_class = LimitOffsetPagination
+
+
+class CountryListView(ListAPIView):
+    pagination_class = None
+```
+
+### Permissions
+
+`security.permissions` has two classes to protect a view in one line, on top of Django's permissions and groups:
+
+```python
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAuthenticated
+
+from security.permissions import HasPermission, HasRole
+
+
+class AuditLogListView(ListAPIView):
+    permission_classes = (HasPermission("security.view_auditlog"),)
+
+
+class InvoiceListView(ListAPIView):
+    permission_classes = (HasRole("billing") | HasPermission("billing.view_invoice"),)
+
+
+class ReportView(ListAPIView):
+    permission_classes = (IsAuthenticated & ~HasRole("guest"),)
+```
+
+- `HasPermission("app_label.codename")` passes if the user has that permission, directly or through one of their groups (`user.has_perm`). A name without the app label stops Django when the view is imported.
+- `HasRole("name")` passes if the user belongs to the Django `Group` with that name. Groups are created in the admin, under "Authentication and Authorization" → "Groups".
+- An active superuser passes both, so `~HasRole(...)` leaves superusers out.
+- Without a token they answer `401`; with a token and without the permission or role, `403` with `code` `permission_denied`.
+- They combine with `&`, `|` and `~`, between themselves and with DRF's classes.
+- A permission or role that doesn't exist is never met, except by a superuser. Django creates four permissions per model, named `<app_label>.<add|change|delete|view>_<model>` (`security.view_auditlog`).
+
+### CORS
+
+A browser only lets a frontend on another domain or port call the API if the API allows that origin. List the origins in `CORS_ALLOWED_ORIGINS`, each with its scheme and port and without a trailing slash:
+
+```dotenv
+CORS_ALLOWED_ORIGINS=https://app.example.com,http://localhost:5173
+```
+
+- Empty (the default) allows no origin: the API works as before for servers, `curl` and same-origin pages.
+- `*`, or a domain without scheme, stops Django from starting. There is no "allow every origin" setting.
+- It only applies to `/api/`. The admin is never exposed to other origins.
+- Cookies are not sent across origins: the frontend sends the token in `Authorization`, which is allowed.
+- The frontend can read the `Retry-After` header of a `429` (see [Rate limits](#rate-limits)).
 
 ---
 

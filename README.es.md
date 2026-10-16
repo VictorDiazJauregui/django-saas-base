@@ -354,6 +354,9 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `EMAIL_URL` | Django | A dónde van los emails, como URL. Vacía: se imprimen en la consola. Ver [Email](#email) | *(vacía)* |
 | `DEFAULT_FROM_EMAIL` | Django | Remitente de los emails que manda el proyecto | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` cierra `POST /api/v1/auth/register/` con `403`. Ver [Registro público](#registro-público) | `True` |
+| `API_PAGE_SIZE` | Django | Elementos por página de un listado. Ver [Paginación](#paginación) | `20` |
+| `API_MAX_PAGE_SIZE` | Django | El `?page_size=` más grande que puede pedir un cliente. `API_PAGE_SIZE` no puede superarlo | `100` |
+| `CORS_ALLOWED_ORIGINS` | Django | Orígenes que pueden llamar a `/api/` desde un navegador, separados por coma, con esquema y puerto. Vacía: ninguno. Ver [CORS](#cors) | *(vacía)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Nombre del proyecto. De él salen el volumen y la red | `saas` |
 | `DB_CONTAINER_NAME` | Compose | Nombre del contenedor de PostgreSQL | `saas_db` |
 | `DB_NAME` | Ambos | Nombre de la base | `saas_db` |
@@ -461,16 +464,56 @@ Con eso, cada uno tiene su contenedor, su volumen de datos, su red y sus puertos
 
 Las rutas que agregues exigen autenticación por omisión: enviá el token en el header `Authorization: Bearer <access>`.
 
+La API responde JSON. Solo con `DEBUG=True` una ruta abierta en el navegador muestra el Browsable API de DRF; en `staging` y `prod` el navegador también recibe JSON.
+
 El claim `user_id` de los dos tokens es el UUID del usuario como string, por ejemplo
 `"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
 
 Los emails se guardan en minúsculas y sin espacios alrededor, y son únicos sin distinguir mayúsculas: registrar `Jane@Example.com` cuando existe `jane@example.com` responde `400`. El login acepta el email con cualquier combinación de mayúsculas.
 
-La política de contraseñas rige en la API y en el admin. Por defecto una contraseña necesita 8 caracteres, una mayúscula, una minúscula, un dígito y un símbolo, y no puede parecerse demasiado al email ni al nombre. Solo cuenta ASCII: `ñ` o `€` se aceptan pero no cumplen ninguna regla. Cada regla se cambia con las variables `PASSWORD_*`. Un registro que incumple varias reglas recibe todos los mensajes en `password`:
+La política de contraseñas rige en la API y en el admin. Por defecto una contraseña necesita 8 caracteres, una mayúscula, una minúscula, un dígito y un símbolo, y no puede parecerse demasiado al email ni al nombre. Solo cuenta ASCII: `ñ` o `€` se aceptan pero no cumplen ninguna regla. Cada regla se cambia con las variables `PASSWORD_*`. Un registro que incumple varias reglas recibe todos los mensajes en `fields.password`:
 
 ```json
-{"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}
+{"code": "invalid", "detail": "Invalid input.", "fields": {"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}}
 ```
+
+### Errores
+
+Todo error bajo `/api/` tiene la misma forma, sea cual sea el status:
+
+```json
+{"code": "invalid", "detail": "Invalid input.", "fields": {"email": ["Enter a valid email address."], "password": ["This password is too common."]}}
+```
+
+| Clave | Contenido |
+|---|---|
+| `code` | Identificador fijo, en inglés, para que el frontend decida qué hacer. No cambia con el idioma |
+| `detail` | Mensaje para una persona, en el idioma del request (`Accept-Language`) |
+| `fields` | Mensajes por campo, solo en los errores de validación (`400` con `code` `invalid`). Los que no son de un campo van en `non_field_errors`. Siempre está: `{}` cuando no hay |
+
+| Status | `code` |
+|---|---|
+| `400` | `invalid` (con `fields`), `parse_error` (el body no es JSON válido) |
+| `401` | `not_authenticated` (sin token), `token_not_valid` (token vencido, malformado o en la blacklist), `no_active_account` (email o contraseña incorrectos), `authentication_failed` |
+| `403` | `permission_denied` |
+| `404` | `not_found`, también para una ruta que no existe |
+| `405` | `method_not_allowed` |
+| `406` | `not_acceptable` (el cliente solo acepta un formato que no es JSON) |
+| `429` | `throttled` (límite de requests), `account_locked_out` (bloqueo). La espera en segundos está en el header `Retry-After` |
+| `500` | `server_error` |
+
+Con `DEBUG=True`, una ruta que no existe y un error no manejado siguen mostrando la página de debug de Django, con la lista de rutas y el traceback. Fuera de `/api/`, el admin mantiene sus páginas HTML.
+
+El formato sale de `core.exceptions.api_exception_handler`. Para usar uno propio, apuntá `EXCEPTION_HANDLER` a tu función en `REST_FRAMEWORK` (`core/settings.py`):
+
+```python
+REST_FRAMEWORK = {
+    # ...
+    "EXCEPTION_HANDLER": "myproject.errors.my_exception_handler",
+}
+```
+
+Las rutas que no existen y las respuestas `500` salen de `handler404` y `handler500` en `core/urls.py`.
 
 ### Tokens
 
@@ -483,7 +526,7 @@ El token `access` dura 5 minutos y el `refresh` 1 día (`JWT_ACCESS_MINUTES`, `J
 **El frontend tiene que guardar el `refresh` nuevo después de cada refresh.** Volver a mandar el viejo responde `401`:
 
 ```json
-{"detail": "Token is blacklisted", "code": "token_not_valid"}
+{"code": "token_not_valid", "detail": "Token is blacklisted", "fields": {}}
 ```
 
 - Dos pestañas que refrescan a la vez con el mismo token: la segunda recibe `401`. Compartí el token guardado entre pestañas, o mandá al usuario al login ante ese `401`.
@@ -524,8 +567,8 @@ curl -X POST http://localhost:8000/api/v1/auth/logout/ \
 | Status | Body | Cuándo |
 |---|---|---|
 | `200` | `{}` | El `refresh` quedó en la blacklist. Usarlo en `login/refresh/` responde `401` |
-| `400` | `{"refresh": ["This field is required."]}` | Falta `refresh` en el body |
-| `401` | `{"detail": "Token is blacklisted", "code": "token_not_valid"}` | El `refresh` ya se usó o ya se cerró. Otros mensajes para un token vencido, malformado o un `access`, siempre con `"code": "token_not_valid"` |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"refresh": ["This field is required."]}}` | Falta `refresh` en el body |
+| `401` | `{"code": "token_not_valid", "detail": "Token is blacklisted", "fields": {}}` | El `refresh` ya se usó o ya se cerró. Otros mensajes para un token vencido, malformado o un `access`, siempre con `"code": "token_not_valid"` |
 
 **El token `access` no se revoca**: sirve hasta que vence (`JWT_ACCESS_MINUTES`, 5 minutos por defecto). El frontend tiene que borrar los dos tokens al hacer logout. Un `401` del logout significa que la sesión ya estaba cerrada: el frontend lo puede tratar como un logout.
 
@@ -534,7 +577,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout/ \
 El registro está abierto por defecto. Con `ALLOW_PUBLIC_REGISTRATION=False`, `POST /api/v1/auth/register/` responde `403` y no crea nada:
 
 ```json
-{"detail": "Public registration is disabled."}
+{"code": "permission_denied", "detail": "Public registration is disabled.", "fields": {}}
 ```
 
 Se pueden seguir agregando usuarios desde el admin o con `create_admin_auto`, y los usuarios existentes entran como siempre. Los rechazos no cuentan para `THROTTLE_REGISTER_RATE`. Solo `true`, `yes`, `y`, `on`, `ok` o `1` (sin importar mayúsculas) lo dejan abierto: cualquier otro valor, un error de tipeo incluido, lo cierra.
@@ -551,7 +594,7 @@ curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access>"
 {"id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c", "email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "date_joined": "2026-10-16T13:20:05.123456Z"}
 ```
 
-`PATCH` cambia `first_name` y `last_name` (hasta 150 caracteres cada uno, vacío permitido) y devuelve el perfil completo. `id`, `email` y `date_joined` son de solo lectura: si llegan en el body se ignoran sin error, igual que cualquier otro campo. Un nombre demasiado largo responde `400` con `{"first_name": ["Ensure this field has no more than 150 characters."]}`. `PUT`, `POST` y `DELETE` responden `405`.
+`PATCH` cambia `first_name` y `last_name` (hasta 150 caracteres cada uno, vacío permitido) y devuelve el perfil completo. `id`, `email` y `date_joined` son de solo lectura: si llegan en el body se ignoran sin error, igual que cualquier otro campo. Un nombre demasiado largo responde `400` con `{"code": "invalid", "detail": "Invalid input.", "fields": {"first_name": ["Ensure this field has no more than 150 characters."]}}`. `PUT`, `POST` y `DELETE` responden `405`.
 
 El email no se cambia acá: hace falta verificar la casilla nueva primero.
 
@@ -560,7 +603,7 @@ El email no se cambia acá: hace falta verificar la casilla nueva primero.
 El login admite 10 requests cada 10 minutos y el registro 5 por hora, contados por IP del cliente. La request siguiente recibe `429` hasta que el período libera un lugar, con la espera en segundos en el header `Retry-After` y en `detail`:
 
 ```json
-{"detail": "Request was throttled. Expected available in 542 seconds."}
+{"code": "throttled", "detail": "Request was throttled. Expected available in 542 seconds.", "fields": {}}
 ```
 
 Cuenta cada request, sin importar el resultado: una contraseña correcta después de 10 intentos fallidos también recibe `429`. Cada límite es una variable `THROTTLE_*_RATE` con el formato `<requests>/<período>`, donde el período es `s`, `m`, `h` o `d` con un múltiplo opcional (`10/m`, `10/10m`, `100/6h`). Un valor vacío apaga el límite y uno inválido no deja arrancar a Django. Para limitar una vista que agregues, poné `throttle_scope` con uno de los scopes, o sumá el tuyo a `THROTTLE_RATE_DEFAULTS` en `core/settings.py`.
@@ -575,7 +618,7 @@ Dos cosas para configurar antes de producción:
 Tras 5 logins fallidos de la misma cuenta desde la misma IP, ese par queda bloqueado 15 minutos, en la API y en el admin. El quinto fallo ya recibe el bloqueo, y también la contraseña correcta mientras dura. La API responde `429` con la misma forma que los límites de requests:
 
 ```json
-{"detail": "Too many failed login attempts. Expected available in 900 seconds."}
+{"code": "account_locked_out", "detail": "Too many failed login attempts. Expected available in 900 seconds.", "fields": {}}
 ```
 
 El admin muestra una página con los minutos que faltan, también con `429`.
@@ -606,6 +649,76 @@ Los intentos nunca guardan la contraseña. Los logins correctos quedan en "Acces
 Los límites de requests y el bloqueo se complementan: los primeros cuentan requests por IP y frenan a una IP que prueba muchas cuentas; el segundo cuenta fallos por cuenta y frena los intentos lentos contra una sola.
 
 El panel de administración está en `/admin/`.
+
+### Paginación
+
+Los listados se paginan por número de página. Una vista de listado (`ListAPIView`, o un `ViewSet` con `list`) devuelve:
+
+```json
+{"count": 134, "next": "http://localhost:8000/api/v1/items/?page=2", "previous": null, "results": [{"id": 1}, {"id": 2}]}
+```
+
+- `?page=` elige la página, desde `1`. Una página que no existe responde `404` con `code` `not_found`.
+- `?page_size=` cambia el tamaño hasta `API_MAX_PAGE_SIZE`. Un número mayor recibe el máximo, no un error; `0`, un número negativo o texto reciben el valor por defecto.
+- `API_PAGE_SIZE` (por defecto `20`) y `API_MAX_PAGE_SIZE` (por defecto `100`) se leen del `.env`. Cero, un número negativo, texto o un tamaño de página mayor que el máximo impiden que Django arranque.
+
+Una vista puede cambiar su paginación con `pagination_class`, o apagarla con `None`:
+
+```python
+from rest_framework.pagination import LimitOffsetPagination
+
+
+class ItemListView(ListAPIView):
+    pagination_class = LimitOffsetPagination
+
+
+class CountryListView(ListAPIView):
+    pagination_class = None
+```
+
+### Permisos
+
+`security.permissions` trae dos clases para proteger una vista en una línea, sobre los permisos y los grupos de Django:
+
+```python
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAuthenticated
+
+from security.permissions import HasPermission, HasRole
+
+
+class AuditLogListView(ListAPIView):
+    permission_classes = (HasPermission("security.view_auditlog"),)
+
+
+class InvoiceListView(ListAPIView):
+    permission_classes = (HasRole("billing") | HasPermission("billing.view_invoice"),)
+
+
+class ReportView(ListAPIView):
+    permission_classes = (IsAuthenticated & ~HasRole("guest"),)
+```
+
+- `HasPermission("app_label.codename")` deja pasar si el usuario tiene ese permiso, directo o por uno de sus grupos (`user.has_perm`). Un nombre sin la app impide que Django arranque cuando se importa la vista.
+- `HasRole("nombre")` deja pasar si el usuario pertenece al `Group` de Django con ese nombre. Los grupos se crean en el admin, en "Authentication and Authorization" → "Groups".
+- Un superusuario activo pasa las dos, así que `~HasRole(...)` deja afuera a los superusuarios.
+- Sin token responden `401`; con token y sin el permiso o el rol, `403` con `code` `permission_denied`.
+- Se combinan con `&`, `|` y `~`, entre sí y con las clases de DRF.
+- Un permiso o un rol que no existe nunca se cumple, salvo para un superusuario. Django crea cuatro permisos por modelo, con la forma `<app_label>.<add|change|delete|view>_<modelo>` (`security.view_auditlog`).
+
+### CORS
+
+Un navegador solo deja que un frontend en otro dominio o puerto llame a la API si la API permite ese origen. Los orígenes van en `CORS_ALLOWED_ORIGINS`, cada uno con su esquema y su puerto y sin `/` final:
+
+```dotenv
+CORS_ALLOWED_ORIGINS=https://app.example.com,http://localhost:5173
+```
+
+- Vacía (el valor por defecto) no permite ningún origen: la API sigue funcionando igual para servidores, `curl` y páginas del mismo origen.
+- `*`, o un dominio sin esquema, impide que Django arranque. No existe la opción de permitir todos los orígenes.
+- Solo aplica a `/api/`. El admin nunca se expone a otros orígenes.
+- Las cookies no viajan entre orígenes: el frontend manda el token en `Authorization`, que está permitido.
+- El frontend puede leer el header `Retry-After` de un `429` (ver [Límites de requests](#límites-de-requests)).
 
 ---
 

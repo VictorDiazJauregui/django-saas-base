@@ -94,7 +94,7 @@ class RefreshErrorTests(TokenRotationTestCase):
         response = self.refresh(refresh_token)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.data["detail"].code, "no_active_account")
+        self.assertEqual(response.data["code"], "no_active_account")
 
 
 class TokenLifetimeTests(TokenRotationTestCase):

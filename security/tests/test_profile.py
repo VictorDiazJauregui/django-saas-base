@@ -95,7 +95,7 @@ class ProfileUpdateTests(ProfileTestCase):
         response = self.update_profile({"first_name": "x" * 151})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("first_name", response.data)
+        self.assertIn("first_name", response.data["fields"])
 
     def test_records_the_update_in_the_audit_log(self):
         self.update_profile({"first_name": "Ana"})

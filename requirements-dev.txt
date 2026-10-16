@@ -4,6 +4,7 @@ asgiref==3.12.1
     # via
     #   django
     #   django-axes
+    #   django-cors-headers
 asttokens==3.0.2
     # via stack-data
 black==25.12.0
@@ -14,11 +15,14 @@ colorama==0.4.6 ; sys_platform == 'win32'
 django==5.2.17
     # via
     #   django-axes
+    #   django-cors-headers
     #   django-extensions
     #   djangorestframework
     #   djangorestframework-simplejwt
     #   saas
 django-axes==8.3.1
+    # via saas
+django-cors-headers==4.9.0
     # via saas
 django-environ==0.14.0
     # via saas

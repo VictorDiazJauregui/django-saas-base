@@ -4,13 +4,17 @@ asgiref==3.12.1
     # via
     #   django
     #   django-axes
+    #   django-cors-headers
 django==5.2.17
     # via
     #   django-axes
+    #   django-cors-headers
     #   djangorestframework
     #   djangorestframework-simplejwt
     #   saas
 django-axes==8.3.1
+    # via saas
+django-cors-headers==4.9.0
     # via saas
 django-environ==0.14.0
     # via saas

@@ -98,6 +98,15 @@ def parse_non_negative_int(name, raw_value):
     return parse_int_at_least(name, raw_value, minimum=0)
 
 
+def validate_page_sizes(page_size, max_page_size):
+    if page_size > max_page_size:
+        raise ImproperlyConfigured(
+            f"API_PAGE_SIZE={page_size} can't be larger than "
+            f"API_MAX_PAGE_SIZE={max_page_size}."
+        )
+    return page_size
+
+
 LOCKOUT_FIELDS = ("username", "ip_address", "user_agent")
 
 

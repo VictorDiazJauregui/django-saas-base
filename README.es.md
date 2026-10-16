@@ -16,6 +16,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [Producción](#producción)
 - [Varios proyectos en la misma máquina](#varios-proyectos-en-la-misma-máquina)
 - [API](#api)
+- [Email](#email)
 - [Auditoría](#auditoría)
 - [Dependencias](#dependencias)
 - [Tests y formato](#tests-y-formato)
@@ -34,6 +35,8 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **Protección del login:** límites de requests por IP y bloqueo de cuenta tras varios logins fallidos, en la API y en el admin.
 - **PostgreSQL 18** en Docker Compose, configurado por variables.
 - **Usuario personalizado** que inicia sesión con su email y tiene un UUID aleatorio como clave primaria.
+- **Endpoints de cuenta:** logout, el perfil propio en `/me/` y cierre de todas las sesiones al cambiar la contraseña.
+- **Email** por cualquier proveedor SMTP, configurado con una URL; en desarrollo se imprime en la consola.
 - **Auditoría:** cada request que modifica datos queda registrada, con los datos sensibles censurados.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Internacionalización** preparada para inglés y español.
@@ -348,6 +351,9 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `AXES_FAILURE_LIMIT` | Django | Logins fallidos que bloquean una cuenta. Ver [Bloqueo de cuenta](#bloqueo-de-cuenta) | `5` |
 | `AXES_COOLOFF_MINUTES` | Django | Minutos que dura el bloqueo | `15` |
 | `AXES_LOCKOUT_PARAMETERS` | Django | Qué se bloquea: `username`, `ip_address`, `user_agent`, unidos con `+` | `username+ip_address` |
+| `EMAIL_URL` | Django | A dónde van los emails, como URL. Vacía: se imprimen en la consola. Ver [Email](#email) | *(vacía)* |
+| `DEFAULT_FROM_EMAIL` | Django | Remitente de los emails que manda el proyecto | `webmaster@localhost` |
+| `ALLOW_PUBLIC_REGISTRATION` | Django | `False` cierra `POST /api/v1/auth/register/` con `403`. Ver [Registro público](#registro-público) | `True` |
 | `COMPOSE_PROJECT_NAME` | Compose | Nombre del proyecto. De él salen el volumen y la red | `saas` |
 | `DB_CONTAINER_NAME` | Compose | Nombre del contenedor de PostgreSQL | `saas_db` |
 | `DB_NAME` | Ambos | Nombre de la base | `saas_db` |
@@ -449,6 +455,9 @@ Con eso, cada uno tiene su contenedor, su volumen de datos, su red y sus puertos
 | `POST` | `/api/v1/auth/register/` | Registra un usuario | `email`, `password`, `password2`, `first_name`, `last_name` |
 | `POST` | `/api/v1/auth/login/` | Devuelve los tokens `access` y `refresh` | `email`, `password` |
 | `POST` | `/api/v1/auth/login/refresh/` | Devuelve un `access` y un `refresh` nuevos; el `refresh` enviado deja de servir. Ver [Tokens](#tokens) | `refresh` |
+| `POST` | `/api/v1/auth/logout/` | Pone en la blacklist el `refresh` enviado. Ver [Logout](#logout) | `refresh` |
+| `GET` | `/api/v1/auth/me/` | Devuelve el perfil del usuario autenticado. Ver [Perfil](#perfil) | — |
+| `PATCH` | `/api/v1/auth/me/` | Actualiza `first_name` y `last_name` | `first_name`, `last_name` (los dos opcionales) |
 
 Las rutas que agregues exigen autenticación por omisión: enviá el token en el header `Authorization: Bearer <access>`.
 
@@ -479,6 +488,7 @@ El token `access` dura 5 minutos y el `refresh` 1 día (`JWT_ACCESS_MINUTES`, `J
 
 - Dos pestañas que refrescan a la vez con el mismo token: la segunda recibe `401`. Compartí el token guardado entre pestañas, o mandá al usuario al login ante ese `401`.
 - El token `access` no se revoca: sirve hasta que vence. Mantené corto `JWT_ACCESS_MINUTES`.
+- Cambiar la contraseña de un usuario pone en la blacklist todos sus `refresh`, lo que cierra todas sus sesiones: el próximo refresh de cada una recibe `401` y el frontend lo manda al login. Vale para cualquier forma de cambiarla (el admin, `changepassword`, `create_admin_auto --update-password` o `set_password()` seguido de `save()` en tu código), pero no para `User.objects.filter(...).update(password=...)`, que no pasa por `save()`.
 - El refresh de un usuario borrado o inactivo recibe `401` con `"No active account found for the given token."`.
 - Los tokens se firman con `JWT_SIGNING_KEY`, o con `SECRET_KEY` si está vacía. Cambiar la clave invalida todos los tokens emitidos.
 
@@ -500,6 +510,50 @@ En Windows, con el Programador de tareas, desde PowerShell:
 $action = New-ScheduledTaskAction -Execute "C:\ruta\al\proyecto\.venv\Scripts\python.exe" -Argument "manage.py flushexpiredtokens" -WorkingDirectory "C:\ruta\al\proyecto"
 Register-ScheduledTask -TaskName "flushexpiredtokens" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)
 ```
+
+### Logout
+
+`POST /api/v1/auth/logout/` pone en la blacklist el `refresh` del body. No lleva header `Authorization`: quien tiene el refresh ya puede usarlo, así que también puede revocarlo, y el logout sigue funcionando aunque el access haya vencido.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/logout/ \
+  -H "Content-Type: application/json" \
+  -d '{"refresh": "<refresh>"}'
+```
+
+| Status | Body | Cuándo |
+|---|---|---|
+| `200` | `{}` | El `refresh` quedó en la blacklist. Usarlo en `login/refresh/` responde `401` |
+| `400` | `{"refresh": ["This field is required."]}` | Falta `refresh` en el body |
+| `401` | `{"detail": "Token is blacklisted", "code": "token_not_valid"}` | El `refresh` ya se usó o ya se cerró. Otros mensajes para un token vencido, malformado o un `access`, siempre con `"code": "token_not_valid"` |
+
+**El token `access` no se revoca**: sirve hasta que vence (`JWT_ACCESS_MINUTES`, 5 minutos por defecto). El frontend tiene que borrar los dos tokens al hacer logout. Un `401` del logout significa que la sesión ya estaba cerrada: el frontend lo puede tratar como un logout.
+
+### Registro público
+
+El registro está abierto por defecto. Con `ALLOW_PUBLIC_REGISTRATION=False`, `POST /api/v1/auth/register/` responde `403` y no crea nada:
+
+```json
+{"detail": "Public registration is disabled."}
+```
+
+Se pueden seguir agregando usuarios desde el admin o con `create_admin_auto`, y los usuarios existentes entran como siempre. Los rechazos no cuentan para `THROTTLE_REGISTER_RATE`. Solo `true`, `yes`, `y`, `on`, `ok` o `1` (sin importar mayúsculas) lo dejan abierto: cualquier otro valor, un error de tipeo incluido, lo cierra.
+
+### Perfil
+
+`/api/v1/auth/me/` es el perfil de quien manda el token (`Authorization: Bearer <access>`). Sin un token válido responde `401`.
+
+```bash
+curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access>"
+```
+
+```json
+{"id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c", "email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "date_joined": "2026-10-16T13:20:05.123456Z"}
+```
+
+`PATCH` cambia `first_name` y `last_name` (hasta 150 caracteres cada uno, vacío permitido) y devuelve el perfil completo. `id`, `email` y `date_joined` son de solo lectura: si llegan en el body se ignoran sin error, igual que cualquier otro campo. Un nombre demasiado largo responde `400` con `{"first_name": ["Ensure this field has no more than 150 characters."]}`. `PUT`, `POST` y `DELETE` responden `405`.
+
+El email no se cambia acá: hace falta verificar la casilla nueva primero.
 
 ### Límites de requests
 
@@ -554,6 +608,31 @@ Los límites de requests y el bloqueo se complementan: los primeros cuentan requ
 El panel de administración está en `/admin/`.
 
 ---
+
+## Email
+
+El proyecto manda emails por cualquier proveedor SMTP, configurado con una sola variable. Con `EMAIL_URL` vacía, cada email se imprime en la consola de `runserver`, que alcanza para desarrollar.
+
+| Proveedor | `EMAIL_URL` |
+|---|---|
+| SendGrid | `smtp+tls://apikey:<api-key>@smtp.sendgrid.net:587` |
+| Mailgun | `smtp+tls://postmaster%40mg.example.com:<smtp-password>@smtp.mailgun.org:587` |
+| Amazon SES | `smtp+tls://<smtp-username>:<smtp-password>@email-smtp.us-east-1.amazonaws.com:587` |
+
+- `smtp+tls://` usa STARTTLS, en general en el puerto `587`. Para TLS desde el primer byte (puerto `465`) usá `smtp+ssl://`. `smtp://` manda sin cifrar. Ojo: acá `smtps://` significa STARTTLS, no el puerto 465.
+- El usuario y la contraseña van dentro de la URL, así que estos caracteres se codifican: `@` como `%40`, `:` como `%3A`, `/` como `%2F`, `#` como `%23`, `?` como `%3F` y `%` como `%25`. Las contraseñas de Amazon SES suelen tener `/`. Para codificar una: `python -c "import urllib.parse; print(urllib.parse.quote(input(), safe=''))"`.
+- `DEFAULT_FROM_EMAIL` tiene que ser una dirección desde la que el proveedor te deje enviar (un dominio o remitente verificado).
+- Un esquema desconocido (`foo://`) no deja arrancar a Django.
+
+Para mandar un email desde tu código, escribí tres plantillas en una carpeta de tu app, `templates/<prefijo>/subject.txt`, `body.txt` y `body.html`, y llamá:
+
+```python
+from core.emails import send_templated_email
+
+send_templated_email("emails/welcome", user.email, {"name": user.first_name})
+```
+
+Las plantillas se renderizan en el idioma activo, así que `{% translate %}` y `{% blocktranslate %}` funcionan como en cualquier plantilla. El email sale en un hilo aparte cuando la transacción de la base hace commit: el request no espera al servidor SMTP, y si la transacción se revierte no se manda nada. Un error de envío queda en el log `core.emails` con el nombre de la plantilla, sin el destinatario. Cada envío espera hasta 10 segundos al servidor. Si el proceso se corta justo en ese momento, ese email se pierde.
 
 ## Auditoría
 

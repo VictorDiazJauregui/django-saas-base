@@ -16,6 +16,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - [Production](#production)
 - [Several projects on the same machine](#several-projects-on-the-same-machine)
 - [API](#api)
+- [Email](#email)
 - [Audit log](#audit-log)
 - [Dependencies](#dependencies)
 - [Tests and formatting](#tests-and-formatting)
@@ -34,6 +35,8 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **Login protection:** request limits per IP and an account lockout after repeated failed logins, in the API and the admin.
 - **PostgreSQL 18** in Docker Compose, configured through variables.
 - **Custom user** that logs in with an email and has a random UUID as primary key.
+- **Account endpoints:** logout, the user's own profile in `/me/`, and every session closed when the password changes.
+- **Email** through any SMTP provider, configured with one URL; printed to the console while developing.
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
 - **Admin panel** to manage users and browse the audit log.
 - **Internationalization** ready for English and Spanish.
@@ -348,6 +351,9 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `AXES_FAILURE_LIMIT` | Django | Failed logins that lock an account. See [Account lockout](#account-lockout) | `5` |
 | `AXES_COOLOFF_MINUTES` | Django | Minutes the lockout lasts | `15` |
 | `AXES_LOCKOUT_PARAMETERS` | Django | What is locked: `username`, `ip_address`, `user_agent`, joined with `+` | `username+ip_address` |
+| `EMAIL_URL` | Django | Where emails go, as a URL. Empty: printed to the console. See [Email](#email) | *(empty)* |
+| `DEFAULT_FROM_EMAIL` | Django | Sender of the emails the project sends | `webmaster@localhost` |
+| `ALLOW_PUBLIC_REGISTRATION` | Django | `False` closes `POST /api/v1/auth/register/` with `403`. See [Public registration](#public-registration) | `True` |
 | `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
 | `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
 | `DB_NAME` | Both | Database name | `saas_db` |
@@ -449,6 +455,9 @@ With that, each one has its own container, data volume, network and ports, and t
 | `POST` | `/api/v1/auth/register/` | Registers a user | `email`, `password`, `password2`, `first_name`, `last_name` |
 | `POST` | `/api/v1/auth/login/` | Returns the `access` and `refresh` tokens | `email`, `password` |
 | `POST` | `/api/v1/auth/login/refresh/` | Returns a new `access` and a new `refresh`; the `refresh` sent stops working. See [Tokens](#tokens) | `refresh` |
+| `POST` | `/api/v1/auth/logout/` | Blacklists the `refresh` sent. See [Logout](#logout) | `refresh` |
+| `GET` | `/api/v1/auth/me/` | Returns the profile of the authenticated user. See [Profile](#profile) | — |
+| `PATCH` | `/api/v1/auth/me/` | Updates `first_name` and `last_name` | `first_name`, `last_name` (both optional) |
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
@@ -479,6 +488,7 @@ The `access` token lasts 5 minutes and the `refresh` token 1 day (`JWT_ACCESS_MI
 
 - Two tabs that refresh at the same time with the same token: the second one gets `401`. Share the stored token between tabs, or send the user back to login on that `401`.
 - An `access` token is not revoked: it works until it expires. Keep `JWT_ACCESS_MINUTES` short.
+- Changing a user's password blacklists every `refresh` token that user has, which closes all their sessions: the next refresh of each one gets `401` and the frontend sends the user back to login. It applies to every way of changing it (the admin, `changepassword`, `create_admin_auto --update-password` or `set_password()` followed by `save()` in your code), but not to `User.objects.filter(...).update(password=...)`, which skips `save()`.
 - A refresh token of a deleted or inactive user gets `401` with `"No active account found for the given token."`.
 - Tokens are signed with `JWT_SIGNING_KEY`, or with `SECRET_KEY` when it's empty. Changing the key invalidates every token already issued.
 
@@ -500,6 +510,50 @@ On Windows, with the Task Scheduler, from PowerShell:
 $action = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\python.exe" -Argument "manage.py flushexpiredtokens" -WorkingDirectory "C:\path\to\project"
 Register-ScheduledTask -TaskName "flushexpiredtokens" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)
 ```
+
+### Logout
+
+`POST /api/v1/auth/logout/` blacklists the `refresh` token in the body. It needs no `Authorization` header: whoever holds the refresh token can already use it, so it can also revoke it, and logout keeps working after the access token expired.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/logout/ \
+  -H "Content-Type: application/json" \
+  -d '{"refresh": "<refresh>"}'
+```
+
+| Status | Body | When |
+|---|---|---|
+| `200` | `{}` | The `refresh` is now blacklisted. Using it in `login/refresh/` gets `401` |
+| `400` | `{"refresh": ["This field is required."]}` | No `refresh` in the body |
+| `401` | `{"detail": "Token is blacklisted", "code": "token_not_valid"}` | The `refresh` was already used or logged out. Other messages for an expired, malformed or `access` token, always with `"code": "token_not_valid"` |
+
+**The `access` token is not revoked**: it keeps working until it expires (`JWT_ACCESS_MINUTES`, 5 minutes by default). The frontend has to delete both tokens on logout. A `401` from logout means the session was already closed, so the frontend can treat it as a logout.
+
+### Public registration
+
+Registration is open by default. With `ALLOW_PUBLIC_REGISTRATION=False`, `POST /api/v1/auth/register/` answers `403` and creates nothing:
+
+```json
+{"detail": "Public registration is disabled."}
+```
+
+Users can still be added from the admin or with `create_admin_auto`, and existing users log in as before. The rejections don't count against `THROTTLE_REGISTER_RATE`. Only `true`, `yes`, `y`, `on`, `ok` or `1` (any case) keep it open: any other value, a typo included, closes it.
+
+### Profile
+
+`/api/v1/auth/me/` is the profile of whoever sends the token (`Authorization: Bearer <access>`). Without a valid token it answers `401`.
+
+```bash
+curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access>"
+```
+
+```json
+{"id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c", "email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "date_joined": "2026-10-16T13:20:05.123456Z"}
+```
+
+`PATCH` changes `first_name` and `last_name` (up to 150 characters each, empty allowed) and returns the whole profile. `id`, `email` and `date_joined` are read-only: if they come in the body they are ignored without an error, and any other field too. A name that is too long gets `400` with `{"first_name": ["Ensure this field has no more than 150 characters."]}`. `PUT`, `POST` and `DELETE` get `405`.
+
+Changing the email is not available here: it needs the new address verified first.
 
 ### Rate limits
 
@@ -554,6 +608,31 @@ The rate limits and the lockout complement each other: the first counts requests
 The admin panel is at `/admin/`.
 
 ---
+
+## Email
+
+The project sends email through any SMTP provider, configured with one variable. With `EMAIL_URL` empty, each email is printed in the `runserver` console, which is enough to develop.
+
+| Provider | `EMAIL_URL` |
+|---|---|
+| SendGrid | `smtp+tls://apikey:<api-key>@smtp.sendgrid.net:587` |
+| Mailgun | `smtp+tls://postmaster%40mg.example.com:<smtp-password>@smtp.mailgun.org:587` |
+| Amazon SES | `smtp+tls://<smtp-username>:<smtp-password>@email-smtp.us-east-1.amazonaws.com:587` |
+
+- `smtp+tls://` uses STARTTLS, usually on port `587`. For TLS from the first byte (port `465`) use `smtp+ssl://`. `smtp://` sends without encryption. Watch out: `smtps://` means STARTTLS here, not port 465.
+- The user and the password go inside the URL, so these characters have to be percent-encoded: `@` as `%40`, `:` as `%3A`, `/` as `%2F`, `#` as `%23`, `?` as `%3F` and `%` as `%25`. Amazon SES passwords often have `/`. To encode one: `python -c "import urllib.parse; print(urllib.parse.quote(input(), safe=''))"`.
+- `DEFAULT_FROM_EMAIL` has to be an address the provider lets you send from (a verified domain or sender).
+- An unknown scheme (`foo://`) stops Django from starting.
+
+To send an email from your code, write three templates in a folder of your app, `templates/<prefix>/subject.txt`, `body.txt` and `body.html`, and call:
+
+```python
+from core.emails import send_templated_email
+
+send_templated_email("emails/welcome", user.email, {"name": user.first_name})
+```
+
+The templates render in the active language, so `{% translate %}` and `{% blocktranslate %}` work as in any other template. The email goes out in a separate thread once the database transaction commits: the request does not wait for the SMTP server, and nothing is sent if the transaction rolls back. A delivery error is logged under the `core.emails` logger with the template name, not the recipient. Each send waits up to 10 seconds for the server. If the process stops in that instant, that email is lost.
 
 ## Audit log
 

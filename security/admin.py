@@ -23,6 +23,7 @@ STATUS_CLASS_RANGES = {
 }
 PERMISSION_FIELDS = (
     "is_active",
+    "is_email_verified",
     "is_staff",
     "is_superuser",
     "groups",
@@ -35,7 +36,15 @@ class UserAdmin(BaseUserAdmin):
     form = EmailUserChangeForm
     add_form = EmailUserCreationForm
     ordering = ("email",)
-    list_display = ("email", "first_name", "last_name", "is_staff", "is_active")
+    list_display = (
+        "email",
+        "first_name",
+        "last_name",
+        "is_staff",
+        "is_active",
+        "is_email_verified",
+    )
+    list_filter = (*BaseUserAdmin.list_filter, "is_email_verified")
     search_fields = ("email", "first_name", "last_name")
     fieldsets = (
         (None, {"fields": ("email", "password")}),

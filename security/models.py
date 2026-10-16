@@ -44,6 +44,9 @@ class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None
     email = models.EmailField(_("email address"), unique=True)
+    # Only the public registration creates unverified accounts. is_active stays for the admin
+    # to disable an account, so a pending verification can never re-enable a disabled one.
+    is_email_verified = models.BooleanField(_("email verified"), default=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []

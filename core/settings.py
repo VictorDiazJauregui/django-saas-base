@@ -197,6 +197,28 @@ AUDIT_PAYLOAD_MAX_BYTES = parse_non_negative_int(
 )
 
 
+# --- Email ---
+# One URL configures any SMTP provider; empty or missing prints the emails to the console.
+# Lowercase so the parsed URL, password included, does not become a setting of its own.
+email_url_settings = env.email_url_config(
+    env.str("EMAIL_URL", default="") or "consolemail://"
+)
+EMAIL_BACKEND = email_url_settings["EMAIL_BACKEND"]
+EMAIL_HOST = email_url_settings["EMAIL_HOST"] or "localhost"
+EMAIL_PORT = email_url_settings["EMAIL_PORT"] or 25
+EMAIL_HOST_USER = email_url_settings["EMAIL_HOST_USER"] or ""
+EMAIL_HOST_PASSWORD = email_url_settings["EMAIL_HOST_PASSWORD"] or ""
+EMAIL_USE_TLS = email_url_settings.get("EMAIL_USE_TLS", False)
+EMAIL_USE_SSL = email_url_settings.get("EMAIL_USE_SSL", False)
+# Without a timeout, an SMTP server that stops answering blocks the sender forever.
+EMAIL_TIMEOUT = 10
+DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+EMAIL_SEND_IN_BACKGROUND = True
+
+# --- Registration ---
+# False closes POST /api/v1/auth/register/; the admin and create_admin_auto still add users.
+ALLOW_PUBLIC_REGISTRATION = env.bool("ALLOW_PUBLIC_REGISTRATION", default=True)
+
 # --- Django Rest Framework (DRF) ---
 # An empty rate means no limit for that scope.
 THROTTLE_RATE_DEFAULTS = {

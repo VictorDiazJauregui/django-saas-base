@@ -62,6 +62,13 @@ def validate_password_for_new_user(attrs):
         raise serializers.ValidationError({"password": error.messages}) from error
 
 
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ("id", "email", "first_name", "last_name", "date_joined")
+        read_only_fields = ("id", "email", "date_joined")
+
+
 class ExistingUserTokenRefreshSerializer(TokenRefreshSerializer):
     # SimpleJWT looks the user up without catching DoesNotExist, so a valid refresh token
     # of a deleted user ended in a 500. It gets the same 401 as an inactive user instead.

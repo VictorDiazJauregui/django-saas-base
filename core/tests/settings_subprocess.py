@@ -28,6 +28,12 @@ PRODUCTION_ENVIRONMENT = {
     "THROTTLE_LOGIN_RATE": "10/10m",
     "THROTTLE_REGISTER_RATE": "5/h",
     "THROTTLE_PASSWORD_RATE": "5/h",
+    "JWT_ACCESS_MINUTES": "5",
+    "JWT_REFRESH_DAYS": "1",
+    "JWT_SIGNING_KEY": "",
+    "AXES_FAILURE_LIMIT": "5",
+    "AXES_COOLOFF_MINUTES": "15",
+    "AXES_LOCKOUT_PARAMETERS": "username+ip_address",
     "DB_NAME": "unused",
     "DB_USER": "unused",
     "DB_PASSWORD": "not-the-example-password",
@@ -41,7 +47,7 @@ import json, sys
 import django
 django.setup()
 from django.conf import settings
-print(json.dumps({name: getattr(settings, name) for name in sys.argv[1:]}))
+print(json.dumps({name: getattr(settings, name) for name in sys.argv[1:]}, default=str))
 """
 
 

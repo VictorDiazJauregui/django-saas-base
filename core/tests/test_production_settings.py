@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from .settings_subprocess import read_settings, run_manage_command
+from .settings_subprocess import STRONG_SECRET_KEY, read_settings, run_manage_command
 
 
 class EnvironmentStartupTests(SimpleTestCase):
@@ -152,3 +152,77 @@ class AuditExtraSensitiveKeysStartupTests(SimpleTestCase):
         )
 
         self.assertEqual(values["AUDIT_EXTRA_SENSITIVE_KEYS"], ["tax-id", "iban"])
+
+
+class TokenLifetimeStartupTests(SimpleTestCase):
+    def test_lifetimes_come_from_the_environment(self):
+        values = read_settings(
+            ["SIMPLE_JWT"], JWT_ACCESS_MINUTES="10", JWT_REFRESH_DAYS="7"
+        )
+
+        self.assertEqual(values["SIMPLE_JWT"]["ACCESS_TOKEN_LIFETIME"], "0:10:00")
+        self.assertEqual(
+            values["SIMPLE_JWT"]["REFRESH_TOKEN_LIFETIME"], "7 days, 0:00:00"
+        )
+
+    def test_refresh_tokens_rotate_into_the_blacklist(self):
+        jwt_settings = read_settings(["SIMPLE_JWT"])["SIMPLE_JWT"]
+
+        self.assertTrue(jwt_settings["ROTATE_REFRESH_TOKENS"])
+        self.assertTrue(jwt_settings["BLACKLIST_AFTER_ROTATION"])
+
+    def test_empty_signing_key_falls_back_to_the_secret_key(self):
+        jwt_settings = read_settings(["SIMPLE_JWT"], JWT_SIGNING_KEY="")["SIMPLE_JWT"]
+
+        self.assertEqual(jwt_settings["SIGNING_KEY"], STRONG_SECRET_KEY)
+
+    def test_own_signing_key_is_used_when_set(self):
+        own_key = "own-signing-key-for-the-tokens-0123456789"
+        jwt_settings = read_settings(["SIMPLE_JWT"], JWT_SIGNING_KEY=own_key)[
+            "SIMPLE_JWT"
+        ]
+
+        self.assertEqual(jwt_settings["SIGNING_KEY"], own_key)
+
+    def test_invalid_lifetimes_fail_to_start(self):
+        for variable, value in (
+            ("JWT_ACCESS_MINUTES", "0"),
+            ("JWT_REFRESH_DAYS", "-1"),
+        ):
+            with self.subTest(variable=variable):
+                result = run_manage_command(["check"], **{variable: value})
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(variable, result.stderr)
+
+
+class LoginLockoutStartupTests(SimpleTestCase):
+    def test_lockout_settings_come_from_the_environment(self):
+        names = ["AXES_FAILURE_LIMIT", "AXES_COOLOFF_TIME", "AXES_LOCKOUT_PARAMETERS"]
+
+        values = read_settings(
+            names,
+            AXES_FAILURE_LIMIT="3",
+            AXES_COOLOFF_MINUTES="30",
+            AXES_LOCKOUT_PARAMETERS="username+ip_address,user_agent",
+        )
+
+        self.assertEqual(values["AXES_FAILURE_LIMIT"], 3)
+        self.assertEqual(values["AXES_COOLOFF_TIME"], "0:30:00")
+        self.assertEqual(
+            values["AXES_LOCKOUT_PARAMETERS"],
+            [["username", "ip_address"], "user_agent"],
+        )
+
+    def test_invalid_lockout_settings_fail_to_start(self):
+        cases = (
+            ("AXES_FAILURE_LIMIT", "0"),
+            ("AXES_COOLOFF_MINUTES", "abc"),
+            ("AXES_LOCKOUT_PARAMETERS", "username+email"),
+        )
+        for variable, value in cases:
+            with self.subTest(variable=variable):
+                result = run_manage_command(["check"], **{variable: value})
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(variable, result.stderr)

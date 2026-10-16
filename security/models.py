@@ -88,12 +88,21 @@ class AuditLog(models.Model):
     method = models.CharField(_("HTTP Method"), max_length=10)
     path = models.CharField(_("URL Path"), max_length=255)
     payload = models.JSONField(_("Payload"), null=True, blank=True)
+    status_code = models.PositiveSmallIntegerField(
+        _("Status code"), null=True, blank=True
+    )
     timestamp = models.DateTimeField(_("Timestamp"), auto_now_add=True)
 
     class Meta:
         verbose_name = _("Audit Log")
         verbose_name_plural = _("Audit Logs")
         ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["timestamp"], name="auditlog_timestamp_idx"),
+            models.Index(
+                fields=["user", "timestamp"], name="auditlog_user_timestamp_idx"
+            ),
+        ]
 
     def __str__(self):
         return f"{self.method} {self.path} by {self.user or 'Anonymous'} at {self.timestamp}"

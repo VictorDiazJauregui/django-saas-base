@@ -14,6 +14,13 @@ User = get_user_model()
 EMPTY_PAYLOAD_LABEL = "-"
 SHORT_PAYLOAD_MAX_LENGTH = 75
 TRUNCATION_SUFFIX = "..."
+NO_STATUS = "none"
+STATUS_CLASS_RANGES = {
+    "2xx": (200, 299),
+    "3xx": (300, 399),
+    "4xx": (400, 499),
+    "5xx": (500, 599),
+}
 PERMISSION_FIELDS = (
     "is_active",
     "is_staff",
@@ -47,6 +54,25 @@ class UserAdmin(BaseUserAdmin):
     )
 
 
+# A filter on the exact code would run a SELECT DISTINCT over the whole table on every page
+# load; status classes are a fixed list and answer the usual question: what failed.
+class StatusClassListFilter(admin.SimpleListFilter):
+    title = _("status")
+    parameter_name = "status_class"
+
+    def lookups(self, request, model_admin):
+        status_classes = [(name, name) for name in STATUS_CLASS_RANGES]
+        return [*status_classes, (NO_STATUS, _("No status"))]
+
+    def queryset(self, request, queryset):
+        if self.value() == NO_STATUS:
+            return queryset.filter(status_code__isnull=True)
+        status_range = STATUS_CLASS_RANGES.get(self.value())
+        if status_range is None:
+            return queryset
+        return queryset.filter(status_code__range=status_range)
+
+
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
     list_display = (
@@ -54,17 +80,19 @@ class AuditLogAdmin(admin.ModelAdmin):
         "user",
         "method",
         "path",
+        "status_code",
         "ip_address",
         "short_payload",
     )
-    list_filter = ("method", "user", "timestamp")
+    list_filter = ("method", StatusClassListFilter, "timestamp")
+    list_select_related = ("user",)
+    show_full_result_count = False
     search_fields = (
         "user__email",
         "path",
         "method",
         "ip_address",
         "user_agent",
-        "payload",
     )
     readonly_fields = (
         "user",
@@ -72,6 +100,7 @@ class AuditLogAdmin(admin.ModelAdmin):
         "user_agent",
         "method",
         "path",
+        "status_code",
         "pretty_payload",
         "timestamp",
     )
@@ -86,6 +115,7 @@ class AuditLogAdmin(admin.ModelAdmin):
         "user_agent",
         "method",
         "path",
+        "status_code",
         "pretty_payload",
     )
 

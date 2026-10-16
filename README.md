@@ -341,6 +341,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header. Used by the rate limits and the audit log. A negative number stops Django from starting | `0` |
 | `CACHE_URL` | Django | Cache where the limits are counted | `locmemcache://` |
 | `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Extra keys the audit log redacts, comma separated. See [Audit log](#audit-log) | *(empty)* |
+| `AUDIT_PAYLOAD_MAX_BYTES` | Django | Largest body the audit log stores, in bytes. A larger one is stored as a marker with its size. `0` means no limit. A negative number or text stops Django from starting | `65536` |
 | `JWT_ACCESS_MINUTES` | Django | Lifetime of the `access` token, in minutes. See [Tokens](#tokens) | `5` |
 | `JWT_REFRESH_DAYS` | Django | Lifetime of the `refresh` token, in days | `1` |
 | `JWT_SIGNING_KEY` | Django | Key that signs the tokens. Empty: `SECRET_KEY` | *(empty)* |
@@ -556,9 +557,22 @@ The admin panel is at `/admin/`.
 
 ## Audit log
 
-`security.middleware.AuditMiddleware` stores every `POST`, `PUT`, `PATCH` and `DELETE` in `AuditLog`: user, IP, user agent, method, path and the JSON body. You can browse it in the admin under **Security › Audit Logs**.
+`security.middleware.AuditMiddleware` stores every `POST`, `PUT`, `PATCH` and `DELETE` in `AuditLog`: user, IP, user agent, method, path, the response status and the body. You can browse it in the admin under **Security › Audit Logs**.
 
-The admin shows the audit log read-only: nobody, superusers included, can add, edit or delete records there. Staff users need the `security.view_auditlog` permission to see it.
+The admin shows the audit log read-only: nobody, superusers included, can add, edit or delete records there. Old records are deleted with [`purge_audit_logs`](#purging-old-records). Staff users need the `security.view_auditlog` permission to see it.
+
+### Stored bodies
+
+| `Content-Type` | What is stored |
+|---|---|
+| `application/json` | The parsed JSON |
+| `application/x-www-form-urlencoded` | The form fields, in any method. Admin forms use this one |
+| `multipart/form-data` | The form fields of a `POST`. Uploaded files are never read or stored. A `PUT` or `PATCH` stores `{}` |
+| Anything else | `{}` |
+
+Form fields with one value are stored as a string, and repeated fields as a list. The CSRF token (`csrfmiddlewaretoken`) is dropped. Every body goes through the redaction below, so the passwords of the admin login and of the user forms (`password`, `password1`, `password2`) are stored as `[REDACTED]`. The email of the admin login is stored in clear under `username`, the same way the API login stores `email`.
+
+Form fields can hold personal data. Add the keys of your own forms that must not be stored to `AUDIT_EXTRA_SENSITIVE_KEYS`.
 
 ### Client IP
 
@@ -584,6 +598,52 @@ Values whose key looks like a credential are stored as `[REDACTED]`, at any dept
 Short words only match whole keys: as a fragment, `pin` would also hide `shipping`. For keys of your own project, list them in `AUDIT_EXTRA_SENSITIVE_KEYS`. They match whole keys after the same normalization: `AUDIT_EXTRA_SENSITIVE_KEYS=tax-id,iban` redacts `tax_id`, `taxId` and `IBAN`, but not `tax_id_type`.
 
 Records stored before a key was added keep their value.
+
+### Payload size
+
+Bodies larger than `AUDIT_PAYLOAD_MAX_BYTES` (64 KB by default) are not stored. The record keeps a marker with the size instead:
+
+```json
+{"_omitted": "payload_too_large", "size_bytes": 2097152}
+```
+
+The size is measured before parsing the body, so an oversized body is never parsed. For `multipart/form-data` the size is that of the stored fields, without the files. A body is never cut in half: a truncated JSON would be invalid and could end before a sensitive key gets redacted. Set `0` to store every body.
+
+Django rejects bodies over `DATA_UPLOAD_MAX_MEMORY_SIZE` (2.5 MB by default) with a `400` before the request reaches the view, and those requests leave no audit record.
+
+### Purging old records
+
+The audit log grows with every request, and the admin can't delete records. `purge_audit_logs` deletes the ones older than a number of days:
+
+```bash
+python manage.py purge_audit_logs --older-than 90
+```
+
+```text
+About to delete 1520 audit log records, from 2026-01-03 to 2026-07-17 inclusive.
+Continue? [y/N]
+```
+
+| Option | Effect |
+|---|---|
+| `--older-than DAYS` | Required, 1 or more. Counts whole days in `TIME_ZONE`: run on 2026-10-16, `--older-than 30` deletes up to 2026-09-15 inclusive and keeps everything from 2026-09-16 |
+| `--dry-run` | Shows the count and the range, and deletes nothing |
+| `--no-input` | Deletes without asking. Without it and without a terminal, the command stops with an error |
+
+With nothing to delete it says so and doesn't ask. Records are deleted in batches of 5000, each in its own transaction, so the table is never locked for the whole purge.
+
+On Linux and WSL, with cron (`crontab -e`), adjusting the paths and the period:
+
+```text
+30 3 * * * cd /path/to/project && .venv/bin/python manage.py purge_audit_logs --older-than 90 --no-input
+```
+
+On Windows, with the Task Scheduler, from PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\python.exe" -Argument "manage.py purge_audit_logs --older-than 90 --no-input" -WorkingDirectory "C:\path\to\project"
+Register-ScheduledTask -TaskName "purge_audit_logs" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3:30am)
+```
 
 ---
 

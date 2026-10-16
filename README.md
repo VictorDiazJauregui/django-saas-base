@@ -30,7 +30,8 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 
 ## What it includes
 
-- **Django 5.2 LTS** and **Django REST Framework**, with **JWT** authentication.
+- **Django 5.2 LTS** and **Django REST Framework**, with **JWT** authentication and refresh tokens that rotate on every use.
+- **Login protection:** request limits per IP and an account lockout after repeated failed logins, in the API and the admin.
 - **PostgreSQL 18** in Docker Compose, configured through variables.
 - **Custom user** that logs in with an email and has a random UUID as primary key.
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
@@ -95,7 +96,7 @@ Open `.env` in your editor and change at least:
 | `COMPOSE_PROJECT_NAME` | A unique, lowercase name for this project (for example `shop`) |
 | `DB_CONTAINER_NAME` | A unique name for the container (for example `shop_db`) |
 | `DB_NAME`, `DB_USER` | The database name and its user |
-| `DB_PASSWORD`, `ADMIN_PASSWORD` | Your own passwords |
+| `DB_PASSWORD`, `ADMIN_PASSWORD` | Your own passwords. `ADMIN_PASSWORD` has to pass the [password policy](#api) |
 | `SECRET_KEY` | A generated key (see below) |
 | `DB_PORT`, `APP_PORT` | Keep `5432` and `8000` unless they are already taken |
 
@@ -106,6 +107,8 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
 > On Windows, if `python` is not recognized, use `py` instead. With `uv`, prefix it with `uv run`.
+
+> The generated value doesn't always include a symbol, which the password policy asks for. If `create_admin_auto` rejects `ADMIN_PASSWORD`, it says which rule failed: add a `-` or a `_` and run it again.
 
 > **Avoid `$` and `#` in the values.** Docker Compose reads `$` as a reference to another variable and a `#` after a space as a comment, and cuts the value there; Django reads the whole value. The two end up with different values. The command above only produces safe characters.
 
@@ -205,7 +208,7 @@ python manage.py runserver
 ```
 
 - `migrate` creates the tables.
-- `create_admin_auto` creates the superuser from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Running it again does not duplicate it.
+- `create_admin_auto` creates the superuser from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Running it again does not duplicate it. See [The superuser](#the-superuser).
 - `runserver` uses the port in `APP_PORT`. For a one-off port, pass it: `runserver 9000`.
 
 ### 6. Check it works
@@ -338,6 +341,12 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header. Used by the rate limits and the audit log. A negative number stops Django from starting | `0` |
 | `CACHE_URL` | Django | Cache where the limits are counted | `locmemcache://` |
 | `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Extra keys the audit log redacts, comma separated. See [Audit log](#audit-log) | *(empty)* |
+| `JWT_ACCESS_MINUTES` | Django | Lifetime of the `access` token, in minutes. See [Tokens](#tokens) | `5` |
+| `JWT_REFRESH_DAYS` | Django | Lifetime of the `refresh` token, in days | `1` |
+| `JWT_SIGNING_KEY` | Django | Key that signs the tokens. Empty: `SECRET_KEY` | *(empty)* |
+| `AXES_FAILURE_LIMIT` | Django | Failed logins that lock an account. See [Account lockout](#account-lockout) | `5` |
+| `AXES_COOLOFF_MINUTES` | Django | Minutes the lockout lasts | `15` |
+| `AXES_LOCKOUT_PARAMETERS` | Django | What is locked: `username`, `ip_address`, `user_agent`, joined with `+` | `username+ip_address` |
 | `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
 | `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
 | `DB_NAME` | Both | Database name | `saas_db` |
@@ -346,7 +355,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `DB_HOST` | Django | Where the database is | `localhost` |
 | `DB_PORT` | Both | Database port on your machine | `5432` |
 | `ADMIN_EMAIL` | Django | Email of the superuser created by `create_admin_auto` | `admin@example.com` |
-| `ADMIN_PASSWORD` | Django | That superuser's password | *(your own)* |
+| `ADMIN_PASSWORD` | Django | That superuser's password. It has to pass the password policy | *(your own)* |
 | `PASSWORD_MIN_LENGTH` | Django | Minimum password length | `8` |
 | `PASSWORD_REQUIRE_UPPERCASE` | Django | Passwords need an uppercase letter (`A-Z`) | `True` |
 | `PASSWORD_REQUIRE_LOWERCASE` | Django | Passwords need a lowercase letter (`a-z`) | `True` |
@@ -389,6 +398,30 @@ Things to know before going live:
 - **`SECURE_HSTS_PRELOAD=True` is close to irreversible.** Browsers ship the preload list, and leaving it takes months. That's why it's off and its `check --deploy` warning is silenced while it stays off; the same applies to `SECURE_HSTS_INCLUDE_SUBDOMAINS`.
 - **`CSRF_TRUSTED_ORIGINS`** is only needed when the admin or another form is posted from a different origin than the one serving it. A match-all origin such as `https://*` is rejected in `staging` and `prod`.
 
+### The superuser
+
+`create_admin_auto` is meant for automated deployments: it reads `ADMIN_EMAIL` and `ADMIN_PASSWORD` and never asks anything. To create a superuser by hand, use Django's own command, which also asks for the email:
+
+```bash
+python manage.py createsuperuser
+```
+
+What `create_admin_auto` does depends on the email:
+
+| `ADMIN_EMAIL` | Result | Exit code |
+|---|---|---|
+| Doesn't exist | Creates the superuser, if `ADMIN_PASSWORD` passes the password policy | `0`, or `1` with the rules it breaks |
+| Belongs to a superuser | Nothing: the password is not checked or changed | `0` |
+| Belongs to a regular user | Nothing: it doesn't promote users. Promote it from the admin or use another email | `1` |
+
+The email is matched in any case. With `--update-password`, an existing superuser also gets `ADMIN_PASSWORD`, and a missing one is created, so a deployment can always run:
+
+```bash
+python manage.py create_admin_auto --update-password
+```
+
+The password never appears in the output, not even when it's rejected.
+
 ---
 
 ## Several projects on the same machine
@@ -414,7 +447,7 @@ With that, each one has its own container, data volume, network and ports, and t
 |---|---|---|---|
 | `POST` | `/api/v1/auth/register/` | Registers a user | `email`, `password`, `password2`, `first_name`, `last_name` |
 | `POST` | `/api/v1/auth/login/` | Returns the `access` and `refresh` tokens | `email`, `password` |
-| `POST` | `/api/v1/auth/login/refresh/` | Returns a new `access` token | `refresh` |
+| `POST` | `/api/v1/auth/login/refresh/` | Returns a new `access` and a new `refresh`; the `refresh` sent stops working. See [Tokens](#tokens) | `refresh` |
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
@@ -427,6 +460,44 @@ The password policy applies to the API and the admin. By default a password need
 
 ```json
 {"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}
+```
+
+### Tokens
+
+The `access` token lasts 5 minutes and the `refresh` token 1 day (`JWT_ACCESS_MINUTES`, `JWT_REFRESH_DAYS`). Every call to `login/refresh/` returns both tokens and blacklists the `refresh` it received:
+
+```json
+{"access": "eyJhbGciOi...", "refresh": "eyJhbGciOi..."}
+```
+
+**A frontend has to store the new `refresh` after each refresh.** Sending the old one again gets `401`:
+
+```json
+{"detail": "Token is blacklisted", "code": "token_not_valid"}
+```
+
+- Two tabs that refresh at the same time with the same token: the second one gets `401`. Share the stored token between tabs, or send the user back to login on that `401`.
+- An `access` token is not revoked: it works until it expires. Keep `JWT_ACCESS_MINUTES` short.
+- A refresh token of a deleted or inactive user gets `401` with `"No active account found for the given token."`.
+- Tokens are signed with `JWT_SIGNING_KEY`, or with `SECRET_KEY` when it's empty. Changing the key invalidates every token already issued.
+
+Each issued and each blacklisted token is a row in the database, visible in the admin under "Token Blacklist". Delete the expired ones once a day:
+
+```bash
+python manage.py flushexpiredtokens
+```
+
+On Linux and WSL, with cron (`crontab -e`), adjusting the paths:
+
+```text
+0 3 * * * cd /path/to/project && .venv/bin/python manage.py flushexpiredtokens
+```
+
+On Windows, with the Task Scheduler, from PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\python.exe" -Argument "manage.py flushexpiredtokens" -WorkingDirectory "C:\path\to\project"
+Register-ScheduledTask -TaskName "flushexpiredtokens" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)
 ```
 
 ### Rate limits
@@ -443,6 +514,41 @@ Two things to set before production:
 
 - **Behind a proxy**, set `TRUSTED_PROXY_COUNT` to the number of proxies that append to `X-Forwarded-For`. With `0`, every request seems to come from the proxy and all clients share one limit. A higher number than the real one lets clients pick their own IP.
 - **With several processes** (gunicorn workers, more than one server), the default cache is per process and each one counts on its own: 4 workers allow 40 logins every 10 minutes. Point `CACHE_URL` at Redis (`redis://host:6379/0`) and add the `redis` package to the project.
+
+### Account lockout
+
+After 5 failed logins for the same account from the same IP, that pair is locked for 15 minutes, in the API and in the admin. The fifth failure already gets the lockout, and so does the right password while it lasts. The API answers `429` with the same shape as the rate limits:
+
+```json
+{"detail": "Too many failed login attempts. Expected available in 900 seconds."}
+```
+
+The admin shows a page with the minutes left, also with `429`.
+
+- The account is the email in lowercase: changing its case doesn't start a new count.
+- The same account from another IP can still log in, so an attacker can't lock a user out of their own network.
+- A successful login resets the count. It also updates `last_login`, in the API too.
+- Each failed attempt during the lockout restarts the 15 minutes for that account and IP.
+- The IP is the same one the rate limits and the audit log use (`TRUSTED_PROXY_COUNT`).
+
+To unlock before the time is up, delete the attempt in the admin, under "Axes" → "Access attempts", or run one of these:
+
+```bash
+python manage.py axes_reset_username user@example.com
+python manage.py axes_reset
+```
+
+The attempts never store the password. Successful logins are kept in "Access logs"; `python manage.py axes_reset_logs 30` deletes the ones older than 30 days.
+
+`AXES_FAILURE_LIMIT` and `AXES_COOLOFF_MINUTES` change the numbers. `AXES_LOCKOUT_PARAMETERS` decides what is locked: fields joined with `+` lock their combination, and commas separate independent rules. The fields are `username`, `ip_address` and `user_agent`; any other value stops Django from starting.
+
+| Value | Locks |
+|---|---|
+| `username+ip_address` (default) | The account from that IP |
+| `username` | The account from every IP. Anyone can lock out any user |
+| `ip_address` | Every account from that IP |
+
+The rate limits and the lockout complement each other: the first counts requests per IP and stops one IP trying many accounts; the second counts failures per account and stops slow attempts against one account.
 
 The admin panel is at `/admin/`.
 

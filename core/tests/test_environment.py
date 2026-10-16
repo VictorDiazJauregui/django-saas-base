@@ -4,6 +4,8 @@ from django.test import SimpleTestCase
 from core.environment import (
     default_allowed_hosts,
     is_deployed,
+    parse_lockout_parameters,
+    parse_positive_int,
     silenced_hsts_checks,
     validate_allowed_hosts,
     validate_csrf_trusted_origins,
@@ -115,3 +117,38 @@ class TrustedProxyCountTests(SimpleTestCase):
     def test_rejects_negative_counts(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "TRUSTED_PROXY_COUNT=-1"):
             validate_trusted_proxy_count(-1)
+
+
+class PositiveIntTests(SimpleTestCase):
+    def test_returns_the_number(self):
+        self.assertEqual(parse_positive_int("JWT_ACCESS_MINUTES", "5"), 5)
+
+    def test_rejects_zero_negative_and_text_naming_the_variable(self):
+        for raw_value in ("0", "-1", "abc", "", "1.5"):
+            with self.subTest(raw_value=raw_value):
+                with self.assertRaisesMessage(
+                    ImproperlyConfigured, "JWT_ACCESS_MINUTES"
+                ):
+                    parse_positive_int("JWT_ACCESS_MINUTES", raw_value)
+
+
+class LockoutParametersTests(SimpleTestCase):
+    def test_reads_combinations_joined_with_plus(self):
+        self.assertEqual(
+            parse_lockout_parameters("username+ip_address"),
+            [["username", "ip_address"]],
+        )
+
+    def test_reads_several_combinations_and_single_fields(self):
+        self.assertEqual(
+            parse_lockout_parameters("username+ip_address, user_agent"),
+            [["username", "ip_address"], "user_agent"],
+        )
+
+    def test_rejects_unknown_fields_listing_the_valid_ones(self):
+        for raw_value in ("username+email", "", "username+", "+ip_address"):
+            with self.subTest(raw_value=raw_value):
+                with self.assertRaisesMessage(
+                    ImproperlyConfigured, "username, ip_address, user_agent"
+                ):
+                    parse_lockout_parameters(raw_value)

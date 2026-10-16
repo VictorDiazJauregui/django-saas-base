@@ -54,8 +54,12 @@ class ThrottledTestCase(CacheResetAPITestCase):
 
 
 # The limit counts requests, not password checks: a fast hasher keeps the dozens of logins
-# in these tests from taking seconds each.
-@override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
+# in these tests from taking seconds each. The account lockout is off so the repeated
+# failures against one account reach the throttle; test_login_lockout covers both together.
+@override_settings(
+    PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
+    AXES_ENABLED=False,
+)
 @override_rates()
 class LoginThrottleTests(ThrottledTestCase):
     def setUp(self):

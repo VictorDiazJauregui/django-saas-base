@@ -2,6 +2,7 @@
 Django settings for the saas_boilerplate project.
 """
 
+from datetime import timedelta
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from django.utils.translation import gettext_lazy as _
 from core.environment import (
     default_allowed_hosts,
     is_deployed,
+    parse_lockout_parameters,
+    parse_positive_int,
     silenced_hsts_checks,
     validate_allowed_hosts,
     validate_csrf_trusted_origins,
@@ -58,6 +61,8 @@ INSTALLED_APPS = [
     # Third-party apps
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
+    "axes",
     # Local apps
     "security.apps.SecurityConfig",
 ]
@@ -75,6 +80,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "security.middleware.AuditMiddleware",  # Audit log middleware
+    # Last, as axes asks: it turns a lockout flagged during the request into the 429.
+    "axes.middleware.AxesMiddleware",
 ]
 
 ROOT_URLCONF = "core.urls"
@@ -139,6 +146,12 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # --- Custom User Model ---
 AUTH_USER_MODEL = "security.User"
+
+# axes checks the lockout before any other backend tries the password.
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -208,6 +221,47 @@ REST_FRAMEWORK = {
     # client controls: rotating it would skip every limit.
     "NUM_PROXIES": TRUSTED_PROXY_COUNT,
 }
+
+# --- JWT ---
+# Each refresh returns a new refresh token and blacklists the one used, so a stolen
+# refresh token stops working as soon as either side uses it.
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(
+        minutes=parse_positive_int(
+            "JWT_ACCESS_MINUTES", env.str("JWT_ACCESS_MINUTES", default="5")
+        )
+    ),
+    "REFRESH_TOKEN_LIFETIME": timedelta(
+        days=parse_positive_int(
+            "JWT_REFRESH_DAYS", env.str("JWT_REFRESH_DAYS", default="1")
+        )
+    ),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    # An empty JWT_SIGNING_KEY in .env means "not set", not an empty key.
+    "SIGNING_KEY": env.str("JWT_SIGNING_KEY", default="") or SECRET_KEY,
+    "TOKEN_REFRESH_SERIALIZER": "security.serializers.ExistingUserTokenRefreshSerializer",
+}
+
+# --- Account lockout (django-axes) ---
+# Failed logins are counted per account and client IP, in the API and in the admin.
+AXES_FAILURE_LIMIT = parse_positive_int(
+    "AXES_FAILURE_LIMIT", env.str("AXES_FAILURE_LIMIT", default="5")
+)
+AXES_COOLOFF_TIME = timedelta(
+    minutes=parse_positive_int(
+        "AXES_COOLOFF_MINUTES", env.str("AXES_COOLOFF_MINUTES", default="15")
+    )
+)
+AXES_LOCKOUT_PARAMETERS = parse_lockout_parameters(
+    env.str("AXES_LOCKOUT_PARAMETERS", default="username+ip_address")
+)
+AXES_USERNAME_FORM_FIELD = "email"
+AXES_USERNAME_CALLABLE = "security.login_lockout.get_lockout_username"
+AXES_LOCKOUT_CALLABLE = "security.login_lockout.render_admin_lockout"
+AXES_RESET_ON_SUCCESS = True
+# Same client IP as the audit log and the throttling.
+AXES_CLIENT_IP_CALLABLE = "core.client_ip.get_client_ip"
 
 # --- HTTPS and proxies ---
 # staging and prod only serve HTTPS; local and ci keep Django's plain HTTP defaults.

@@ -30,7 +30,8 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 
 ## Qué incluye
 
-- **Django 5.2 LTS** y **Django REST Framework**, con autenticación **JWT**.
+- **Django 5.2 LTS** y **Django REST Framework**, con autenticación **JWT** y refresh tokens que rotan en cada uso.
+- **Protección del login:** límites de requests por IP y bloqueo de cuenta tras varios logins fallidos, en la API y en el admin.
 - **PostgreSQL 18** en Docker Compose, configurado por variables.
 - **Usuario personalizado** que inicia sesión con su email y tiene un UUID aleatorio como clave primaria.
 - **Auditoría:** cada request que modifica datos queda registrada, con los datos sensibles censurados.
@@ -95,7 +96,7 @@ Abrí `.env` con tu editor y cambiá, como mínimo:
 | `COMPOSE_PROJECT_NAME` | Un nombre único para este proyecto, en minúsculas (por ejemplo `tienda`) |
 | `DB_CONTAINER_NAME` | Un nombre único para el contenedor (por ejemplo `tienda_db`) |
 | `DB_NAME`, `DB_USER` | El nombre de la base y de su usuario |
-| `DB_PASSWORD`, `ADMIN_PASSWORD` | Contraseñas propias |
+| `DB_PASSWORD`, `ADMIN_PASSWORD` | Contraseñas propias. `ADMIN_PASSWORD` tiene que cumplir la [política de contraseñas](#api) |
 | `SECRET_KEY` | Una clave generada (ver abajo) |
 | `DB_PORT`, `APP_PORT` | Dejá `5432` y `8000`, salvo que ya estén en uso |
 
@@ -106,6 +107,8 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
 > En Windows, si `python` no se reconoce, usá `py` en su lugar. Con `uv`, anteponé `uv run`.
+
+> El valor generado no siempre trae un símbolo, y la política de contraseñas lo pide. Si `create_admin_auto` rechaza `ADMIN_PASSWORD`, dice qué regla no cumple: agregale un `-` o un `_` y volvé a correrlo.
 
 > **Evitá `$` y `#` en los valores.** Docker Compose interpreta `$` como referencia a otra variable y un `#` precedido de un espacio como comentario, y recorta el valor; Django, en cambio, lo lee entero. Los dos terminan con valores distintos. El comando anterior solo produce caracteres seguros.
 
@@ -205,7 +208,7 @@ python manage.py runserver
 ```
 
 - `migrate` crea las tablas.
-- `create_admin_auto` crea el superusuario con `ADMIN_EMAIL` y `ADMIN_PASSWORD`. Se puede ejecutar más de una vez sin duplicarlo.
+- `create_admin_auto` crea el superusuario con `ADMIN_EMAIL` y `ADMIN_PASSWORD`. Se puede ejecutar más de una vez sin duplicarlo. Ver [El superusuario](#el-superusuario).
 - `runserver` usa el puerto de `APP_PORT`. Para un puerto puntual, escribilo: `runserver 9000`.
 
 ### 6. Comprobar
@@ -338,6 +341,12 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header. La usan los límites de requests y la auditoría. Un número negativo no deja arrancar Django | `0` |
 | `CACHE_URL` | Django | Cache donde se cuentan los límites | `locmemcache://` |
 | `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Claves extra que la auditoría censura, separadas por coma. Ver [Auditoría](#auditoría) | *(vacía)* |
+| `JWT_ACCESS_MINUTES` | Django | Duración del token `access`, en minutos. Ver [Tokens](#tokens) | `5` |
+| `JWT_REFRESH_DAYS` | Django | Duración del token `refresh`, en días | `1` |
+| `JWT_SIGNING_KEY` | Django | Clave con la que se firman los tokens. Vacía: `SECRET_KEY` | *(vacía)* |
+| `AXES_FAILURE_LIMIT` | Django | Logins fallidos que bloquean una cuenta. Ver [Bloqueo de cuenta](#bloqueo-de-cuenta) | `5` |
+| `AXES_COOLOFF_MINUTES` | Django | Minutos que dura el bloqueo | `15` |
+| `AXES_LOCKOUT_PARAMETERS` | Django | Qué se bloquea: `username`, `ip_address`, `user_agent`, unidos con `+` | `username+ip_address` |
 | `COMPOSE_PROJECT_NAME` | Compose | Nombre del proyecto. De él salen el volumen y la red | `saas` |
 | `DB_CONTAINER_NAME` | Compose | Nombre del contenedor de PostgreSQL | `saas_db` |
 | `DB_NAME` | Ambos | Nombre de la base | `saas_db` |
@@ -346,7 +355,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `DB_HOST` | Django | Dónde está la base | `localhost` |
 | `DB_PORT` | Ambos | Puerto de la base en tu máquina | `5432` |
 | `ADMIN_EMAIL` | Django | Email del superusuario que crea `create_admin_auto` | `admin@example.com` |
-| `ADMIN_PASSWORD` | Django | Contraseña de ese superusuario | *(propia)* |
+| `ADMIN_PASSWORD` | Django | Contraseña de ese superusuario. Tiene que cumplir la política de contraseñas | *(propia)* |
 | `PASSWORD_MIN_LENGTH` | Django | Largo mínimo de la contraseña | `8` |
 | `PASSWORD_REQUIRE_UPPERCASE` | Django | La contraseña necesita una mayúscula (`A-Z`) | `True` |
 | `PASSWORD_REQUIRE_LOWERCASE` | Django | La contraseña necesita una minúscula (`a-z`) | `True` |
@@ -389,6 +398,30 @@ Lo que conviene saber antes de salir a producción:
 - **`SECURE_HSTS_PRELOAD=True` es casi irreversible.** La lista de precarga viene dentro de los navegadores y salir de ella tarda meses. Por eso está apagado y su aviso de `check --deploy` queda silenciado mientras siga así; lo mismo vale para `SECURE_HSTS_INCLUDE_SUBDOMAINS`.
 - **`CSRF_TRUSTED_ORIGINS`** solo hace falta si el admin u otro formulario se envía desde un origen distinto del que lo sirve. Un origen comodín total como `https://*` se rechaza en `staging` y `prod`.
 
+### El superusuario
+
+`create_admin_auto` está pensado para despliegues automáticos: lee `ADMIN_EMAIL` y `ADMIN_PASSWORD` y no pregunta nada. Para crear un superusuario a mano, usá el comando de Django, que también pide el email:
+
+```bash
+python manage.py createsuperuser
+```
+
+Lo que hace `create_admin_auto` depende del email:
+
+| `ADMIN_EMAIL` | Resultado | Exit code |
+|---|---|---|
+| No existe | Crea el superusuario, si `ADMIN_PASSWORD` cumple la política de contraseñas | `0`, o `1` con las reglas que no cumple |
+| Es de un superusuario | Nada: no revisa ni cambia la contraseña | `0` |
+| Es de un usuario común | Nada: no promueve usuarios. Promovelo desde el admin o usá otro email | `1` |
+
+El email se compara sin distinguir mayúsculas. Con `--update-password`, un superusuario que ya existe también recibe `ADMIN_PASSWORD`, y si no existe se crea, así que un despliegue puede correr siempre:
+
+```bash
+python manage.py create_admin_auto --update-password
+```
+
+La contraseña nunca aparece en la salida, tampoco cuando se rechaza.
+
 ---
 
 ## Varios proyectos en la misma máquina
@@ -414,7 +447,7 @@ Con eso, cada uno tiene su contenedor, su volumen de datos, su red y sus puertos
 |---|---|---|---|
 | `POST` | `/api/v1/auth/register/` | Registra un usuario | `email`, `password`, `password2`, `first_name`, `last_name` |
 | `POST` | `/api/v1/auth/login/` | Devuelve los tokens `access` y `refresh` | `email`, `password` |
-| `POST` | `/api/v1/auth/login/refresh/` | Devuelve un `access` nuevo | `refresh` |
+| `POST` | `/api/v1/auth/login/refresh/` | Devuelve un `access` y un `refresh` nuevos; el `refresh` enviado deja de servir. Ver [Tokens](#tokens) | `refresh` |
 
 Las rutas que agregues exigen autenticación por omisión: enviá el token en el header `Authorization: Bearer <access>`.
 
@@ -427,6 +460,44 @@ La política de contraseñas rige en la API y en el admin. Por defecto una contr
 
 ```json
 {"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}
+```
+
+### Tokens
+
+El token `access` dura 5 minutos y el `refresh` 1 día (`JWT_ACCESS_MINUTES`, `JWT_REFRESH_DAYS`). Cada llamada a `login/refresh/` devuelve los dos tokens y pone en la blacklist el `refresh` que recibió:
+
+```json
+{"access": "eyJhbGciOi...", "refresh": "eyJhbGciOi..."}
+```
+
+**El frontend tiene que guardar el `refresh` nuevo después de cada refresh.** Volver a mandar el viejo responde `401`:
+
+```json
+{"detail": "Token is blacklisted", "code": "token_not_valid"}
+```
+
+- Dos pestañas que refrescan a la vez con el mismo token: la segunda recibe `401`. Compartí el token guardado entre pestañas, o mandá al usuario al login ante ese `401`.
+- El token `access` no se revoca: sirve hasta que vence. Mantené corto `JWT_ACCESS_MINUTES`.
+- El refresh de un usuario borrado o inactivo recibe `401` con `"No active account found for the given token."`.
+- Los tokens se firman con `JWT_SIGNING_KEY`, o con `SECRET_KEY` si está vacía. Cambiar la clave invalida todos los tokens emitidos.
+
+Cada token emitido y cada token en la blacklist es una fila en la base, visible en el admin en "Token Blacklist". Borrá los vencidos una vez por día:
+
+```bash
+python manage.py flushexpiredtokens
+```
+
+En Linux y WSL, con cron (`crontab -e`), ajustando las rutas:
+
+```text
+0 3 * * * cd /ruta/al/proyecto && .venv/bin/python manage.py flushexpiredtokens
+```
+
+En Windows, con el Programador de tareas, desde PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "C:\ruta\al\proyecto\.venv\Scripts\python.exe" -Argument "manage.py flushexpiredtokens" -WorkingDirectory "C:\ruta\al\proyecto"
+Register-ScheduledTask -TaskName "flushexpiredtokens" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)
 ```
 
 ### Límites de requests
@@ -443,6 +514,41 @@ Dos cosas para configurar antes de producción:
 
 - **Detrás de un proxy**, poné en `TRUSTED_PROXY_COUNT` la cantidad de proxies que agregan su entrada a `X-Forwarded-For`. Con `0`, todas las requests parecen venir del proxy y todos los clientes comparten un mismo límite. Un número mayor al real deja que el cliente elija su propia IP.
 - **Con varios procesos** (workers de gunicorn, más de un servidor), la cache por defecto es por proceso y cada uno cuenta por su lado: 4 workers admiten 40 logins cada 10 minutos. Apuntá `CACHE_URL` a Redis (`redis://host:6379/0`) y sumá el paquete `redis` al proyecto.
+
+### Bloqueo de cuenta
+
+Tras 5 logins fallidos de la misma cuenta desde la misma IP, ese par queda bloqueado 15 minutos, en la API y en el admin. El quinto fallo ya recibe el bloqueo, y también la contraseña correcta mientras dura. La API responde `429` con la misma forma que los límites de requests:
+
+```json
+{"detail": "Too many failed login attempts. Expected available in 900 seconds."}
+```
+
+El admin muestra una página con los minutos que faltan, también con `429`.
+
+- La cuenta es el email en minúsculas: cambiar mayúsculas no empieza una cuenta nueva.
+- La misma cuenta desde otra IP sigue pudiendo entrar, así un atacante no puede dejar a un usuario afuera de su propia red.
+- Un login correcto reinicia la cuenta de fallos. También actualiza `last_login`, en la API incluida.
+- Cada intento fallido durante el bloqueo vuelve a empezar los 15 minutos para esa cuenta e IP.
+- La IP es la misma que usan los límites de requests y la auditoría (`TRUSTED_PROXY_COUNT`).
+
+Para desbloquear antes de tiempo, borrá el intento en el admin, en "Axes" → "Access attempts", o corré uno de estos:
+
+```bash
+python manage.py axes_reset_username user@example.com
+python manage.py axes_reset
+```
+
+Los intentos nunca guardan la contraseña. Los logins correctos quedan en "Access logs"; `python manage.py axes_reset_logs 30` borra los de más de 30 días.
+
+`AXES_FAILURE_LIMIT` y `AXES_COOLOFF_MINUTES` cambian los números. `AXES_LOCKOUT_PARAMETERS` decide qué se bloquea: los campos unidos con `+` bloquean su combinación, y las comas separan reglas independientes. Los campos son `username`, `ip_address` y `user_agent`; cualquier otro valor no deja arrancar a Django.
+
+| Valor | Bloquea |
+|---|---|
+| `username+ip_address` (default) | La cuenta desde esa IP |
+| `username` | La cuenta desde cualquier IP. Cualquiera puede bloquear a cualquier usuario |
+| `ip_address` | Todas las cuentas desde esa IP |
+
+Los límites de requests y el bloqueo se complementan: los primeros cuentan requests por IP y frenan a una IP que prueba muchas cuentas; el segundo cuenta fallos por cuenta y frena los intentos lentos contra una sola.
 
 El panel de administración está en `/admin/`.
 

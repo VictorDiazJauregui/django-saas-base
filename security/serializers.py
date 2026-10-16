@@ -3,6 +3,13 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.serializers import (
+    TokenObtainPairSerializer,
+    TokenRefreshSerializer,
+)
+
+from .login_lockout import raise_if_locked_out
 
 User = get_user_model()
 
@@ -53,3 +60,24 @@ def validate_password_for_new_user(attrs):
         validate_password(attrs["password"], user=unsaved_user)
     except DjangoValidationError as error:
         raise serializers.ValidationError({"password": error.messages}) from error
+
+
+class ExistingUserTokenRefreshSerializer(TokenRefreshSerializer):
+    # SimpleJWT looks the user up without catching DoesNotExist, so a valid refresh token
+    # of a deleted user ended in a 500. It gets the same 401 as an inactive user instead.
+    def validate(self, attrs):
+        try:
+            return super().validate(attrs)
+        except User.DoesNotExist as error:
+            raise AuthenticationFailed(
+                self.error_messages["no_active_account"], "no_active_account"
+            ) from error
+
+
+class LockoutAwareTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        try:
+            return super().validate(attrs)
+        except AuthenticationFailed:
+            raise_if_locked_out(self.context["request"])
+            raise

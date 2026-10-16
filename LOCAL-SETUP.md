@@ -70,7 +70,7 @@ uv run python manage.py runserver
 | `docker compose up -d --wait` | Starts PostgreSQL and waits until it accepts connections |
 | `uv sync` | Creates `.venv` and installs the exact versions in `uv.lock` |
 | `migrate` | Creates or updates the tables |
-| `create_admin_auto` | Creates the test superuser; if it already exists, it does not duplicate it |
+| `create_admin_auto` | Creates the test superuser; if it already exists, it does not duplicate it. `ADMIN_PASSWORD` has to pass the password policy: if it doesn't, the command says which rule failed |
 | `runserver` | Starts the server on the `APP_PORT` port |
 
 `runserver` holds the terminal. To stop it: `Ctrl + C`.
@@ -91,7 +91,7 @@ uv run python manage.py runserver
 grep '^ADMIN_PASSWORD=' .env | cut -d= -f2-
 ```
 
-If the user does not exist, create it with `uv run python manage.py create_admin_auto`.
+If the user does not exist, create it with `uv run python manage.py create_admin_auto`. After changing `ADMIN_PASSWORD`, apply it with `uv run python manage.py create_admin_auto --update-password`.
 
 ---
 

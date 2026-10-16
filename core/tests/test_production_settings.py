@@ -226,3 +226,18 @@ class LoginLockoutStartupTests(SimpleTestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(variable, result.stderr)
+
+
+class AuditPayloadLimitStartupTests(SimpleTestCase):
+    def test_limit_is_read_as_a_number(self):
+        values = read_settings(["AUDIT_PAYLOAD_MAX_BYTES"], AUDIT_PAYLOAD_MAX_BYTES="0")
+
+        self.assertEqual(values["AUDIT_PAYLOAD_MAX_BYTES"], 0)
+
+    def test_invalid_limit_fails_to_start(self):
+        for value in ("-1", "abc"):
+            with self.subTest(value=value):
+                result = run_manage_command(["check"], AUDIT_PAYLOAD_MAX_BYTES=value)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("AUDIT_PAYLOAD_MAX_BYTES", result.stderr)

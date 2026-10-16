@@ -5,6 +5,7 @@ from core.environment import (
     default_allowed_hosts,
     is_deployed,
     parse_lockout_parameters,
+    parse_non_negative_int,
     parse_positive_int,
     silenced_hsts_checks,
     validate_allowed_hosts,
@@ -130,6 +131,24 @@ class PositiveIntTests(SimpleTestCase):
                     ImproperlyConfigured, "JWT_ACCESS_MINUTES"
                 ):
                     parse_positive_int("JWT_ACCESS_MINUTES", raw_value)
+
+
+class NonNegativeIntTests(SimpleTestCase):
+    def test_returns_the_number_including_zero(self):
+        for raw_value, expected in (("0", 0), ("65536", 65536)):
+            with self.subTest(raw_value=raw_value):
+                self.assertEqual(
+                    parse_non_negative_int("AUDIT_PAYLOAD_MAX_BYTES", raw_value),
+                    expected,
+                )
+
+    def test_rejects_negative_and_text_naming_the_variable(self):
+        for raw_value in ("-1", "abc", "", "1.5"):
+            with self.subTest(raw_value=raw_value):
+                with self.assertRaisesMessage(
+                    ImproperlyConfigured, "AUDIT_PAYLOAD_MAX_BYTES"
+                ):
+                    parse_non_negative_int("AUDIT_PAYLOAD_MAX_BYTES", raw_value)
 
 
 class LockoutParametersTests(SimpleTestCase):

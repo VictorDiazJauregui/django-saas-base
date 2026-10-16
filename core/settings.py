@@ -20,6 +20,7 @@ from core.environment import (
     validate_csrf_trusted_origins,
     validate_debug,
     validate_environment,
+    validate_page_sizes,
     validate_trusted_proxy_count,
 )
 from core.throttle_rates import validate_rate
@@ -64,6 +65,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "axes",
+    "corsheaders",
     # Local apps
     "security.apps.SecurityConfig",
 ]
@@ -73,6 +75,8 @@ INSTALLED_APPS += [app for app in OPTIONAL_DEVELOPMENT_APPS if find_spec(app)]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Before CommonMiddleware, as django-cors-headers asks: it answers preflights early.
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",  # i18n
     "django.middleware.common.CommonMiddleware",
@@ -215,11 +219,27 @@ EMAIL_TIMEOUT = 10
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
 EMAIL_SEND_IN_BACKGROUND = True
 
+# --- CORS ---
+# Empty means no other origin can call the API from a browser. Every origin needs its
+# scheme: django-cors-headers refuses to start with "*" or a bare domain.
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+CORS_URLS_REGEX = r"^/api/.*$"
+# Browsers hide every other response header from a different origin.
+CORS_EXPOSE_HEADERS = ["Retry-After"]
+
 # --- Registration ---
 # False closes POST /api/v1/auth/register/; the admin and create_admin_auto still add users.
 ALLOW_PUBLIC_REGISTRATION = env.bool("ALLOW_PUBLIC_REGISTRATION", default=True)
 
 # --- Django Rest Framework (DRF) ---
+API_MAX_PAGE_SIZE = parse_positive_int(
+    "API_MAX_PAGE_SIZE", env.str("API_MAX_PAGE_SIZE", default="100")
+)
+API_PAGE_SIZE = validate_page_sizes(
+    parse_positive_int("API_PAGE_SIZE", env.str("API_PAGE_SIZE", default="20")),
+    API_MAX_PAGE_SIZE,
+)
+
 # An empty rate means no limit for that scope.
 THROTTLE_RATE_DEFAULTS = {
     "anon": "",
@@ -246,6 +266,12 @@ REST_FRAMEWORK = {
     # Without it DRF identifies clients by the whole X-Forwarded-For header, which the
     # client controls: rotating it would skip every limit.
     "NUM_PROXIES": TRUSTED_PROXY_COUNT,
+    "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
+    # A frontend only needs JSON; the browsable API stays for local work with DEBUG=True.
+    "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",)
+    + (("rest_framework.renderers.BrowsableAPIRenderer",) if DEBUG else ()),
+    "DEFAULT_PAGINATION_CLASS": "core.pagination.ConfigurablePageNumberPagination",
+    "PAGE_SIZE": API_PAGE_SIZE,
 }
 
 # --- JWT ---

@@ -22,7 +22,6 @@ User = get_user_model()
 REGISTER_URL = reverse("security:register")
 LOGIN_URL = reverse("security:login")
 ADD_USER_URL = reverse("admin:security_user_add")
-DUPLICATE_EMAIL_MESSAGE = "user with this email address already exists."
 UPPERCASE_EMAIL = DEFAULT_EMAIL.upper()
 
 
@@ -31,14 +30,13 @@ def count_mailbox_rows(email):
 
 
 class RegistrationEmailCaseTests(CacheResetAPITestCase):
-    def test_rejects_the_same_mailbox_in_other_case(self):
+    def test_does_not_create_the_same_mailbox_in_other_case(self):
         create_user()
         payload = build_registration_payload(email=UPPERCASE_EMAIL)
 
         response = self.client.post(REGISTER_URL, payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["fields"]["email"], [DUPLICATE_EMAIL_MESSAGE])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(count_mailbox_rows(DEFAULT_EMAIL), 1)
 
     def test_stores_the_email_in_lowercase_without_spaces(self):

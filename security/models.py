@@ -67,6 +67,25 @@ class User(AbstractUser):
         self.email = type(self).objects.normalize_email(self.email)
         super().save(*args, **kwargs)
 
+    # Every way of changing a password ends in save(), so comparing the hash read from the
+    # database with the one being saved catches all of them without an extra query.
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        user = super().from_db(db, field_names, values)
+        user.remember_password_hash()
+        return user
+
+    def refresh_from_db(self, *args, **kwargs):
+        super().refresh_from_db(*args, **kwargs)
+        self.remember_password_hash()
+
+    def remember_password_hash(self):
+        self._loaded_password_hash = self.__dict__.get("password")
+
+    def has_password_hash_changed(self):
+        loaded_hash = getattr(self, "_loaded_password_hash", None)
+        return loaded_hash is not None and self.__dict__.get("password") != loaded_hash
+
     def __str__(self):
         return self.email
 

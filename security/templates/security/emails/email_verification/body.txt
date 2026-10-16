@@ -1,0 +1,10 @@
+{# Plain text: escaping would turn the & of the link into &amp;. #}{% load i18n %}{% autoescape off %}{% translate "To finish creating your account, confirm this is your email by opening this link:" %}
+
+{{ verification_url }}
+
+{% blocktranslate count hours=timeout_hours trimmed %}
+The link expires in {{ hours }} hour. If it expires, ask for a new one from the app.
+{% plural %}
+The link expires in {{ hours }} hours. If it expires, ask for a new one from the app.
+{% endblocktranslate %}
+{% translate "If you didn't create an account, ignore this email." %}{% endautoescape %}

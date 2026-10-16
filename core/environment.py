@@ -1,9 +1,13 @@
+from urllib.parse import urlsplit
+
 from django.core.exceptions import ImproperlyConfigured
 
 DEVELOPMENT_ENVIRONMENTS = ("local", "ci")
 DEPLOYED_ENVIRONMENTS = ("staging", "prod")
 VALID_ENVIRONMENTS = DEVELOPMENT_ENVIRONMENTS + DEPLOYED_ENVIRONMENTS
 WILDCARD_HOST = "*"
+LINK_MARKERS = ("{uid}", "{token}")
+LINK_SCHEMES = ("http", "https")
 
 
 def validate_environment(name):
@@ -105,6 +109,28 @@ def validate_page_sizes(page_size, max_page_size):
             f"API_MAX_PAGE_SIZE={max_page_size}."
         )
     return page_size
+
+
+def validate_frontend_link_url(name, url):
+    parts = urlsplit(url)
+    if parts.scheme not in LINK_SCHEMES or not parts.hostname:
+        raise ImproperlyConfigured(
+            f"{name}={url!r} is not valid. Use the absolute URL of the frontend page, "
+            "such as https://app.example.com/reset-password?uid={uid}&token={token}."
+        )
+    missing_markers = [marker for marker in LINK_MARKERS if marker not in url]
+    if missing_markers:
+        raise ImproperlyConfigured(
+            f"{name} must contain {{uid}} and {{token}}, which the API replaces with the "
+            f"values the frontend sends back. Missing: {', '.join(missing_markers)}."
+        )
+    return url
+
+
+def validate_optional_frontend_link_url(name, url, required):
+    if not url and not required:
+        return ""
+    return validate_frontend_link_url(name, url)
 
 
 LOCKOUT_FIELDS = ("username", "ip_address", "user_agent")

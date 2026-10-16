@@ -20,6 +20,8 @@ from core.environment import (
     validate_csrf_trusted_origins,
     validate_debug,
     validate_environment,
+    validate_frontend_link_url,
+    validate_optional_frontend_link_url,
     validate_page_sizes,
     validate_trusted_proxy_count,
 )
@@ -155,7 +157,7 @@ AUTH_USER_MODEL = "security.User"
 # axes checks the lockout before any other backend tries the password.
 AUTHENTICATION_BACKENDS = [
     "axes.backends.AxesStandaloneBackend",
-    "django.contrib.auth.backends.ModelBackend",
+    "security.authentication.VerifiedEmailModelBackend",
 ]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -231,6 +233,27 @@ CORS_EXPOSE_HEADERS = ["Retry-After"]
 # False closes POST /api/v1/auth/register/; the admin and create_admin_auto still add users.
 ALLOW_PUBLIC_REGISTRATION = env.bool("ALLOW_PUBLIC_REGISTRATION", default=True)
 
+# --- Account emails ---
+# The API has no pages: the emails link to the frontend, which sends {uid} and {token} back.
+FRONTEND_PASSWORD_RESET_URL = validate_frontend_link_url(
+    "FRONTEND_PASSWORD_RESET_URL", env.str("FRONTEND_PASSWORD_RESET_URL", default="")
+)
+PASSWORD_RESET_TIMEOUT = 60 * parse_positive_int(
+    "PASSWORD_RESET_TIMEOUT_MINUTES",
+    env.str("PASSWORD_RESET_TIMEOUT_MINUTES", default="60"),
+)
+# True makes a public registration log in only after following the link of its email.
+REQUIRE_EMAIL_VERIFICATION = env.bool("REQUIRE_EMAIL_VERIFICATION", default=False)
+FRONTEND_EMAIL_VERIFICATION_URL = validate_optional_frontend_link_url(
+    "FRONTEND_EMAIL_VERIFICATION_URL",
+    env.str("FRONTEND_EMAIL_VERIFICATION_URL", default=""),
+    required=REQUIRE_EMAIL_VERIFICATION,
+)
+EMAIL_VERIFICATION_TIMEOUT = 3600 * parse_positive_int(
+    "EMAIL_VERIFICATION_TIMEOUT_HOURS",
+    env.str("EMAIL_VERIFICATION_TIMEOUT_HOURS", default="24"),
+)
+
 # --- Django Rest Framework (DRF) ---
 API_MAX_PAGE_SIZE = parse_positive_int(
     "API_MAX_PAGE_SIZE", env.str("API_MAX_PAGE_SIZE", default="100")
@@ -247,6 +270,7 @@ THROTTLE_RATE_DEFAULTS = {
     "login": "10/10m",
     "register": "5/h",
     "password": "5/h",
+    "verify_email": "5/h",
 }
 
 REST_FRAMEWORK = {

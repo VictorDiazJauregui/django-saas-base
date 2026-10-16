@@ -1,15 +1,25 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in
+from django.utils.translation import gettext_lazy as _
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 from rest_framework_simplejwt.views import TokenBlacklistView, TokenObtainPairView
 
+from .email_verification import mark_email_verified, resend_verification
+from .password_change import set_new_password
+from .password_reset import complete_password_reset, request_password_reset
 from .permissions import PublicRegistrationEnabled
 from .serializers import (
+    EmailVerificationSerializer,
     LockoutAwareTokenObtainPairSerializer,
+    PasswordChangeSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
     ProfileSerializer,
+    ResendVerificationSerializer,
     UserRegisterSerializer,
 )
 from .token_owner import find_token_owner
@@ -74,3 +84,69 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class PasswordChangeView(generics.GenericAPIView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = PasswordChangeSerializer
+    throttle_scope = "password"
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        set_new_password(request.user, serializer.validated_data["new_password"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# Public routes that don't need to know who calls: a stale Authorization header sent by a
+# frontend must not turn a password reset into a 401.
+class PublicAccountView(generics.GenericAPIView):
+    permission_classes = (AllowAny,)
+    authentication_classes = ()
+
+    def validated_data(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+
+class PasswordResetRequestView(PublicAccountView):
+    serializer_class = PasswordResetRequestSerializer
+    throttle_scope = "password"
+    answer = _("If the email belongs to an account, a reset link is on its way.")
+
+    def post(self, request):
+        request_password_reset(self.validated_data(request)["email"])
+        return Response({"detail": self.answer})
+
+
+class PasswordResetConfirmView(PublicAccountView):
+    serializer_class = PasswordResetConfirmSerializer
+    throttle_scope = "password"
+
+    def post(self, request):
+        validated = self.validated_data(request)
+        complete_password_reset(validated["user"], validated["new_password"])
+        request._request.user_for_audit = validated["user"]
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class EmailVerificationView(PublicAccountView):
+    serializer_class = EmailVerificationSerializer
+    throttle_scope = "verify_email"
+
+    def post(self, request):
+        mark_email_verified(self.validated_data(request)["user"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ResendVerificationView(PublicAccountView):
+    serializer_class = ResendVerificationSerializer
+    throttle_scope = "verify_email"
+    answer = _(
+        "If the email belongs to an account pending verification, a new link is on its way."
+    )
+
+    def post(self, request):
+        resend_verification(self.validated_data(request)["email"])
+        return Response({"detail": self.answer})

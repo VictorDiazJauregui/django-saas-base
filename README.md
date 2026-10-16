@@ -35,7 +35,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **Login protection:** request limits per IP and an account lockout after repeated failed logins, in the API and the admin.
 - **PostgreSQL 18** in Docker Compose, configured through variables.
 - **Custom user** that logs in with an email and has a random UUID as primary key.
-- **Account endpoints:** logout, the user's own profile in `/me/`, and every session closed when the password changes.
+- **Account endpoints:** logout, the user's own profile in `/me/`, password change and reset by email, optional email verification, and every session closed when the password changes. Registration and reset don't reveal which emails have an account.
 - **Email** through any SMTP provider, configured with one URL; printed to the console while developing.
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
 - **Admin panel** to manage users and browse the audit log.
@@ -340,7 +340,8 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `THROTTLE_USER_RATE` | Django | Limit for authenticated requests to any endpoint. Empty: no limit | *(empty)* |
 | `THROTTLE_LOGIN_RATE` | Django | Limit for `POST /api/v1/auth/login/` | `10/10m` |
 | `THROTTLE_REGISTER_RATE` | Django | Limit for `POST /api/v1/auth/register/` | `5/h` |
-| `THROTTLE_PASSWORD_RATE` | Django | Limit for the password endpoints you add with `throttle_scope = "password"` | `5/h` |
+| `THROTTLE_VERIFY_EMAIL_RATE` | Django | Limit for `verify-email/` and `verify-email/resend/` | `5/h` |
+| `THROTTLE_PASSWORD_RATE` | Django | Limit for the password change and the password reset, and for the endpoints you add with `throttle_scope = "password"` | `5/h` |
 | `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header. Used by the rate limits and the audit log. A negative number stops Django from starting | `0` |
 | `CACHE_URL` | Django | Cache where the limits are counted | `locmemcache://` |
 | `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Extra keys the audit log redacts, comma separated. See [Audit log](#audit-log) | *(empty)* |
@@ -354,6 +355,11 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `EMAIL_URL` | Django | Where emails go, as a URL. Empty: printed to the console. See [Email](#email) | *(empty)* |
 | `DEFAULT_FROM_EMAIL` | Django | Sender of the emails the project sends | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` closes `POST /api/v1/auth/register/` with `403`. See [Public registration](#public-registration) | `True` |
+| `FRONTEND_PASSWORD_RESET_URL` | Django | Frontend page the reset email links to, with `{uid}` and `{token}`. Required: without it, or without a marker, Django doesn't start. See [Password reset](#password-reset) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
+| `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutes a reset link works | `60` |
+| `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: a public registration logs in only after following the link of its email. See [Email verification](#email-verification) | `False` |
+| `FRONTEND_EMAIL_VERIFICATION_URL` | Django | Frontend page the verification email links to, with `{uid}` and `{token}`. Required only with `REQUIRE_EMAIL_VERIFICATION=True` | `'http://localhost:3000/verify-email?uid={uid}&token={token}'` |
+| `EMAIL_VERIFICATION_TIMEOUT_HOURS` | Django | Hours a verification link works | `24` |
 | `API_PAGE_SIZE` | Django | Items per page of a list. See [Pagination](#pagination) | `20` |
 | `API_MAX_PAGE_SIZE` | Django | Largest `?page_size=` a client can ask for. `API_PAGE_SIZE` can't be larger | `100` |
 | `CORS_ALLOWED_ORIGINS` | Django | Origins allowed to call `/api/` from a browser, comma separated, with scheme and port. Empty: none. See [CORS](#cors) | *(empty)* |
@@ -391,7 +397,7 @@ Two details worth knowing:
 | Session and CSRF cookies | Sent over HTTP | `Secure`: HTTPS only |
 | HSTS | Off | `SECURE_HSTS_SECONDS`, `3600` by default |
 
-Django also checks the values copied from `.env.example`. If `SECRET_KEY`, `DB_PASSWORD` or `ADMIN_PASSWORD` still have the example value, `runserver`, `migrate` and `check` report it: a warning in `local` and `ci` (`core.W001` to `core.W003`) and an error that stops the command in `staging` and `prod` (`core.E001` to `core.E003`). A short `SECRET_KEY` is reported by Django itself (`security.W009`).
+Django also checks the values copied from `.env.example`. If `SECRET_KEY`, `DB_PASSWORD` or `ADMIN_PASSWORD` still have the example value, `runserver`, `migrate` and `check` report it: a warning in `local` and `ci` (`core.W001` to `core.W003`) and an error that stops the command in `staging` and `prod` (`core.E001` to `core.E003`). A short `SECRET_KEY` is reported by Django itself (`security.W009`). In `staging` and `prod`, an `EMAIL_URL` that doesn't deliver emails (empty, console, file or memory) gets the warning `core.W004`: the password reset would print its links to the log and nobody would get them.
 
 Before deploying, run the same check the CI runs, with your production `.env` loaded:
 
@@ -461,6 +467,11 @@ With that, each one has its own container, data volume, network and ports, and t
 | `POST` | `/api/v1/auth/logout/` | Blacklists the `refresh` sent. See [Logout](#logout) | `refresh` |
 | `GET` | `/api/v1/auth/me/` | Returns the profile of the authenticated user. See [Profile](#profile) | — |
 | `PATCH` | `/api/v1/auth/me/` | Updates `first_name` and `last_name` | `first_name`, `last_name` (both optional) |
+| `POST` | `/api/v1/auth/password/change/` | Changes the password of the authenticated user. See [Change password](#change-password) | `current_password`, `new_password`, `new_password2` |
+| `POST` | `/api/v1/auth/password/reset/` | Emails a link to choose a new password. See [Password reset](#password-reset) | `email` |
+| `POST` | `/api/v1/auth/password/reset/confirm/` | Sets the new password with the `uid` and `token` of the link | `uid`, `token`, `new_password`, `new_password2` |
+| `POST` | `/api/v1/auth/verify-email/` | Verifies the email of an account with the `uid` and `token` of the link. See [Email verification](#email-verification) | `uid`, `token` |
+| `POST` | `/api/v1/auth/verify-email/resend/` | Emails a new verification link | `email` |
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
@@ -469,7 +480,7 @@ The API answers JSON. Only with `DEBUG=True` does a route opened in the browser 
 The `user_id` claim of both tokens is the user's UUID as a string, for example
 `"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
 
-Emails are stored in lowercase and without surrounding spaces, and they are unique regardless of case: registering `Jane@Example.com` when `jane@example.com` exists returns `400`. Login accepts the email in any case.
+Emails are stored in lowercase and without surrounding spaces, and they are unique regardless of case: registering `Jane@Example.com` when `jane@example.com` exists creates nothing (see [Email verification](#email-verification)). Login accepts the email in any case.
 
 The password policy applies to the API and the admin. By default a password needs 8 characters, an uppercase letter, a lowercase letter, a digit and a symbol, and it can't be too similar to the email or the name. Only ASCII counts: `ñ` or `€` are allowed but don't meet any rule. Each rule can be changed with the `PASSWORD_*` variables. A registration that breaks several rules gets every message in `fields.password`:
 
@@ -598,9 +609,78 @@ curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access>"
 
 Changing the email is not available here: it needs the new address verified first.
 
+### Change password
+
+`POST /api/v1/auth/password/change/` changes the password of whoever sends the token. It asks for the current password, and the new one goes through the same policy as the registration.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password/change/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"current_password": "<current>", "new_password": "<new>", "new_password2": "<new>"}'
+```
+
+| Status | Body | When |
+|---|---|---|
+| `204` | — | The password changed |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"current_password": ["Your current password is incorrect."]}}` | Wrong current password. A weak new password fills `fields.new_password`, a confirmation that doesn't match fills `fields.new_password2`, and a missing field gets `"This field is required."` |
+| `401` | `{"code": "not_authenticated", ...}` | No token. An invalid or expired one gets `"code": "token_not_valid"` |
+| `429` | `{"code": "throttled", ...}` | More than `THROTTLE_PASSWORD_RATE` attempts (5 per hour by default, per user) |
+
+**Every session of the user is closed, the one that made the change included**: all its refresh tokens go to the blacklist, as with any password change (see [Tokens](#tokens)). The frontend already has the new password, so after the `204` it logs in again to get a new pair. The current `access` token keeps working until it expires.
+
+### Password reset
+
+The API has no pages of its own, so the reset takes two calls and a page in your frontend:
+
+1. `POST /api/v1/auth/password/reset/` with `{"email": "..."}`. It always answers `200` with the same body, whether the email has an account or not, so nobody can use it to find out who is registered:
+
+   ```json
+   {"detail": "If the email belongs to an account, a reset link is on its way."}
+   ```
+
+   If the account exists, is active and has a password, it gets an email with a link built from `FRONTEND_PASSWORD_RESET_URL`, where `{uid}` and `{token}` are replaced.
+2. The link opens your frontend page, which asks for the new password and sends it with the two values:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/password/reset/confirm/ \
+     -H "Content-Type: application/json" \
+     -d '{"uid": "<uid>", "token": "<token>", "new_password": "<new>", "new_password2": "<new>"}'
+   ```
+
+| Status | Body | When |
+|---|---|---|
+| `204` | — | The password changed |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"token": ["Invalid or expired link."]}}` | The link was already used, expired (`PASSWORD_RESET_TIMEOUT_MINUTES`, 60 by default) or was altered. A wrong `uid` gets the same answer. A weak password fills `fields.new_password`, and a confirmation that doesn't match fills `fields.new_password2` |
+| `429` | `{"code": "throttled", ...}` | More than `THROTTLE_PASSWORD_RATE` requests from the same IP (5 per hour by default, shared by both routes) |
+
+A link works once: setting the password changes what the token was signed with, and so does logging in after asking for it. A confirmed reset closes every session of the user, like any password change, and clears the failed logins that had locked the account (see [Account lockout](#account-lockout)). The email goes out in the background, so asking for a reset takes the same time whether the account exists or not.
+
+`FRONTEND_PASSWORD_RESET_URL` is required in every environment. Keep it in quotes in `.env`: the `&` of a query string breaks the line when a shell runs `source .env`.
+
+### Email verification
+
+`POST /api/v1/auth/register/` answers `201` with the submitted `email`, `first_name` and `last_name` whether the email already had an account or not. With an existing email nothing is created or changed, and the owner gets an email saying someone tried to register with it. The duplicate takes as long to answer as a new account, so the timing doesn't give it away either. A body that fails validation (passwords that don't match, a weak password) still gets `400`.
+
+With `REQUIRE_EMAIL_VERIFICATION=True`, a new account also gets an email with a link built from `FRONTEND_EMAIL_VERIFICATION_URL`, and it can't log in until it follows it:
+
+1. Until then, login answers `401` with the same body as a wrong password. A different answer would tell whoever registered an email whether it already had an account. After a registration, the frontend can show "check your email, or ask for a new link".
+2. The frontend page sends the two values of the link:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/verify-email/ \
+     -H "Content-Type: application/json" -d '{"uid": "<uid>", "token": "<token>"}'
+   ```
+
+   It answers `204`, and from then on login works. A used, expired (`EMAIL_VERIFICATION_TIMEOUT_HOURS`, 24 by default) or altered link gets `400` with `{"code": "invalid", "detail": "Invalid input.", "fields": {"token": ["Invalid or expired link."]}}`.
+3. `POST /api/v1/auth/verify-email/resend/` with `{"email": "..."}` sends a new link. It always answers `200` with the same body, and only sends when the account exists, is active and is still pending.
+
+Both routes share `THROTTLE_VERIFY_EMAIL_RATE` (5 per hour by default, per IP). Users created in the admin or with `create_admin_auto`, and the ones that existed before, are verified. The admin shows the "Email verified" column and filter, and the field can be ticked by hand. A deactivated user stays deactivated: verifying never touches `is_active`. Turning the flag off lets pending accounts log in.
+
+With `REQUIRE_EMAIL_VERIFICATION=False` (the default), a new account logs in right away. The `201` hides the duplicate, but trying to log in with the password just used still shows whether the account was new: closing that needs the verification on.
+
 ### Rate limits
 
-Login allows 10 requests every 10 minutes and registration 5 per hour, counted by client IP. The next request gets `429` until the period frees a slot, with the wait in seconds in the `Retry-After` header and in `detail`:
+Login allows 10 requests every 10 minutes; registration, the password change and reset, and the email verification 5 per hour each. They are counted by client IP, except the password change, which is counted per user. The next request gets `429` until the period frees a slot, with the wait in seconds in the `Retry-After` header and in `detail`:
 
 ```json
 {"code": "throttled", "detail": "Request was throttled. Expected available in 542 seconds.", "fields": {}}
@@ -745,7 +825,7 @@ from core.emails import send_templated_email
 send_templated_email("emails/welcome", user.email, {"name": user.first_name})
 ```
 
-The templates render in the active language, so `{% translate %}` and `{% blocktranslate %}` work as in any other template. The email goes out in a separate thread once the database transaction commits: the request does not wait for the SMTP server, and nothing is sent if the transaction rolls back. A delivery error is logged under the `core.emails` logger with the template name, not the recipient. Each send waits up to 10 seconds for the server. If the process stops in that instant, that email is lost.
+The templates render in the active language, so `{% translate %}` and `{% blocktranslate %}` work as in any other template. They also escape HTML like any template: wrap `subject.txt` and `body.txt` in `{% autoescape off %}`, or a link with `&` arrives as `&amp;` in the plain text version. The email goes out in a separate thread once the database transaction commits: the request does not wait for the SMTP server, and nothing is sent if the transaction rolls back. A delivery error is logged under the `core.emails` logger with the template name, not the recipient. Each send waits up to 10 seconds for the server. If the process stops in that instant, that email is lost.
 
 ## Audit log
 

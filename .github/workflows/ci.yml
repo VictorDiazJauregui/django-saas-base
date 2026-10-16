@@ -36,6 +36,7 @@ jobs:
       DB_PASSWORD: ci_password
       DB_HOST: localhost
       DB_PORT: "5432"
+      FRONTEND_PASSWORD_RESET_URL: "http://localhost:3000/reset-password?uid={uid}&token={token}"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -77,4 +78,6 @@ jobs:
           ENVIRONMENT: prod
           ALLOWED_HOSTS: api.example.com
           SECRET_KEY: ci-only-production-like-secret-key-0123456789-abcdefghij
+          # Any SMTP URL: check doesn't connect, and without one core.W004 fails the step.
+          EMAIL_URL: smtp+tls://smtp.example.com:587
         run: uv run python manage.py check --deploy --fail-level WARNING

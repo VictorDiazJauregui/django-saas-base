@@ -35,7 +35,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **Protección del login:** límites de requests por IP y bloqueo de cuenta tras varios logins fallidos, en la API y en el admin.
 - **PostgreSQL 18** en Docker Compose, configurado por variables.
 - **Usuario personalizado** que inicia sesión con su email y tiene un UUID aleatorio como clave primaria.
-- **Endpoints de cuenta:** logout, el perfil propio en `/me/` y cierre de todas las sesiones al cambiar la contraseña.
+- **Endpoints de cuenta:** logout, el perfil propio en `/me/`, cambio y recuperación de contraseña por email, verificación de email opcional y cierre de todas las sesiones al cambiar la contraseña. El registro y la recuperación no revelan qué emails tienen cuenta.
 - **Email** por cualquier proveedor SMTP, configurado con una URL; en desarrollo se imprime en la consola.
 - **Auditoría:** cada request que modifica datos queda registrada, con los datos sensibles censurados.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
@@ -340,7 +340,8 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `THROTTLE_USER_RATE` | Django | Límite para requests autenticadas a cualquier endpoint. Vacía: sin límite | *(vacía)* |
 | `THROTTLE_LOGIN_RATE` | Django | Límite de `POST /api/v1/auth/login/` | `10/10m` |
 | `THROTTLE_REGISTER_RATE` | Django | Límite de `POST /api/v1/auth/register/` | `5/h` |
-| `THROTTLE_PASSWORD_RATE` | Django | Límite de los endpoints de contraseña que agregues con `throttle_scope = "password"` | `5/h` |
+| `THROTTLE_VERIFY_EMAIL_RATE` | Django | Límite de `verify-email/` y `verify-email/resend/` | `5/h` |
+| `THROTTLE_PASSWORD_RATE` | Django | Límite del cambio y de la recuperación de contraseña, y de los endpoints que agregues con `throttle_scope = "password"` | `5/h` |
 | `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header. La usan los límites de requests y la auditoría. Un número negativo no deja arrancar Django | `0` |
 | `CACHE_URL` | Django | Cache donde se cuentan los límites | `locmemcache://` |
 | `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Claves extra que la auditoría censura, separadas por coma. Ver [Auditoría](#auditoría) | *(vacía)* |
@@ -354,6 +355,11 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `EMAIL_URL` | Django | A dónde van los emails, como URL. Vacía: se imprimen en la consola. Ver [Email](#email) | *(vacía)* |
 | `DEFAULT_FROM_EMAIL` | Django | Remitente de los emails que manda el proyecto | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` cierra `POST /api/v1/auth/register/` con `403`. Ver [Registro público](#registro-público) | `True` |
+| `FRONTEND_PASSWORD_RESET_URL` | Django | Página del frontend a la que apunta el email de recuperación, con `{uid}` y `{token}`. Obligatoria: sin ella, o sin uno de los marcadores, Django no arranca. Ver [Recuperación de contraseña](#recuperación-de-contraseña) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
+| `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutos que dura un link de recuperación | `60` |
+| `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: un registro público entra recién después de seguir el link de su email. Ver [Verificación de email](#verificación-de-email) | `False` |
+| `FRONTEND_EMAIL_VERIFICATION_URL` | Django | Página del frontend a la que apunta el email de verificación, con `{uid}` y `{token}`. Obligatoria solo con `REQUIRE_EMAIL_VERIFICATION=True` | `'http://localhost:3000/verify-email?uid={uid}&token={token}'` |
+| `EMAIL_VERIFICATION_TIMEOUT_HOURS` | Django | Horas que dura un link de verificación | `24` |
 | `API_PAGE_SIZE` | Django | Elementos por página de un listado. Ver [Paginación](#paginación) | `20` |
 | `API_MAX_PAGE_SIZE` | Django | El `?page_size=` más grande que puede pedir un cliente. `API_PAGE_SIZE` no puede superarlo | `100` |
 | `CORS_ALLOWED_ORIGINS` | Django | Orígenes que pueden llamar a `/api/` desde un navegador, separados por coma, con esquema y puerto. Vacía: ninguno. Ver [CORS](#cors) | *(vacía)* |
@@ -391,7 +397,7 @@ Dos detalles que conviene saber:
 | Cookies de sesión y CSRF | Viajan por HTTP | `Secure`: solo HTTPS |
 | HSTS | Apagado | `SECURE_HSTS_SECONDS`, `3600` por defecto |
 
-Django también revisa los valores copiados de `.env.example`. Si `SECRET_KEY`, `DB_PASSWORD` o `ADMIN_PASSWORD` siguen con el valor del ejemplo, `runserver`, `migrate` y `check` lo informan: como aviso en `local` y `ci` (`core.W001` a `core.W003`) y como error que frena el comando en `staging` y `prod` (`core.E001` a `core.E003`). Una `SECRET_KEY` corta la informa Django mismo (`security.W009`).
+Django también revisa los valores copiados de `.env.example`. Si `SECRET_KEY`, `DB_PASSWORD` o `ADMIN_PASSWORD` siguen con el valor del ejemplo, `runserver`, `migrate` y `check` lo informan: como aviso en `local` y `ci` (`core.W001` a `core.W003`) y como error que frena el comando en `staging` y `prod` (`core.E001` a `core.E003`). Una `SECRET_KEY` corta la informa Django mismo (`security.W009`). En `staging` y `prod`, un `EMAIL_URL` que no entrega emails (vacío, consola, archivo o memoria) recibe el aviso `core.W004`: la recuperación de contraseña imprimiría sus links en el log y no le llegarían a nadie.
 
 Antes de desplegar, corré el mismo chequeo que la CI, con el `.env` de producción cargado:
 
@@ -461,6 +467,11 @@ Con eso, cada uno tiene su contenedor, su volumen de datos, su red y sus puertos
 | `POST` | `/api/v1/auth/logout/` | Pone en la blacklist el `refresh` enviado. Ver [Logout](#logout) | `refresh` |
 | `GET` | `/api/v1/auth/me/` | Devuelve el perfil del usuario autenticado. Ver [Perfil](#perfil) | — |
 | `PATCH` | `/api/v1/auth/me/` | Actualiza `first_name` y `last_name` | `first_name`, `last_name` (los dos opcionales) |
+| `POST` | `/api/v1/auth/password/change/` | Cambia la contraseña del usuario autenticado. Ver [Cambio de contraseña](#cambio-de-contraseña) | `current_password`, `new_password`, `new_password2` |
+| `POST` | `/api/v1/auth/password/reset/` | Manda por email un link para elegir una contraseña nueva. Ver [Recuperación de contraseña](#recuperación-de-contraseña) | `email` |
+| `POST` | `/api/v1/auth/password/reset/confirm/` | Guarda la contraseña nueva con el `uid` y el `token` del link | `uid`, `token`, `new_password`, `new_password2` |
+| `POST` | `/api/v1/auth/verify-email/` | Verifica el email de una cuenta con el `uid` y el `token` del link. Ver [Verificación de email](#verificación-de-email) | `uid`, `token` |
+| `POST` | `/api/v1/auth/verify-email/resend/` | Manda por email un link de verificación nuevo | `email` |
 
 Las rutas que agregues exigen autenticación por omisión: enviá el token en el header `Authorization: Bearer <access>`.
 
@@ -469,7 +480,7 @@ La API responde JSON. Solo con `DEBUG=True` una ruta abierta en el navegador mue
 El claim `user_id` de los dos tokens es el UUID del usuario como string, por ejemplo
 `"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
 
-Los emails se guardan en minúsculas y sin espacios alrededor, y son únicos sin distinguir mayúsculas: registrar `Jane@Example.com` cuando existe `jane@example.com` responde `400`. El login acepta el email con cualquier combinación de mayúsculas.
+Los emails se guardan en minúsculas y sin espacios alrededor, y son únicos sin distinguir mayúsculas: registrar `Jane@Example.com` cuando existe `jane@example.com` no crea nada (ver [Verificación de email](#verificación-de-email)). El login acepta el email con cualquier combinación de mayúsculas.
 
 La política de contraseñas rige en la API y en el admin. Por defecto una contraseña necesita 8 caracteres, una mayúscula, una minúscula, un dígito y un símbolo, y no puede parecerse demasiado al email ni al nombre. Solo cuenta ASCII: `ñ` o `€` se aceptan pero no cumplen ninguna regla. Cada regla se cambia con las variables `PASSWORD_*`. Un registro que incumple varias reglas recibe todos los mensajes en `fields.password`:
 
@@ -598,9 +609,78 @@ curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access>"
 
 El email no se cambia acá: hace falta verificar la casilla nueva primero.
 
+### Cambio de contraseña
+
+`POST /api/v1/auth/password/change/` cambia la contraseña de quien manda el token. Pide la contraseña actual, y la nueva pasa por la misma política que el registro.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password/change/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"current_password": "<actual>", "new_password": "<nueva>", "new_password2": "<nueva>"}'
+```
+
+| Status | Body | Cuándo |
+|---|---|---|
+| `204` | — | La contraseña cambió |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"current_password": ["Your current password is incorrect."]}}` | Contraseña actual incorrecta. Una nueva débil llena `fields.new_password`, una confirmación que no coincide llena `fields.new_password2`, y un campo faltante recibe `"This field is required."` |
+| `401` | `{"code": "not_authenticated", ...}` | Sin token. Uno inválido o vencido recibe `"code": "token_not_valid"` |
+| `429` | `{"code": "throttled", ...}` | Más intentos que `THROTTLE_PASSWORD_RATE` (5 por hora por defecto, por usuario) |
+
+**Se cierran todas las sesiones del usuario, incluida la que hizo el cambio**: todos sus refresh tokens van a la blacklist, como en cualquier cambio de contraseña (ver [Tokens](#tokens)). El frontend ya tiene la contraseña nueva: después del `204` vuelve a hacer login para obtener un par nuevo. El `access` actual sigue sirviendo hasta que vence.
+
+### Recuperación de contraseña
+
+La API no tiene páginas propias, así que la recuperación son dos llamadas y una página de tu frontend:
+
+1. `POST /api/v1/auth/password/reset/` con `{"email": "..."}`. Responde siempre `200` con el mismo body, tenga cuenta el email o no, así nadie puede usarlo para averiguar quién está registrado:
+
+   ```json
+   {"detail": "If the email belongs to an account, a reset link is on its way."}
+   ```
+
+   Si la cuenta existe, está activa y tiene contraseña, recibe un email con un link armado desde `FRONTEND_PASSWORD_RESET_URL`, con `{uid}` y `{token}` reemplazados.
+2. El link abre la página de tu frontend, que pide la contraseña nueva y la manda con los dos valores:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/password/reset/confirm/ \
+     -H "Content-Type: application/json" \
+     -d '{"uid": "<uid>", "token": "<token>", "new_password": "<nueva>", "new_password2": "<nueva>"}'
+   ```
+
+| Status | Body | Cuándo |
+|---|---|---|
+| `204` | — | La contraseña cambió |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"token": ["Invalid or expired link."]}}` | El link ya se usó, venció (`PASSWORD_RESET_TIMEOUT_MINUTES`, 60 por defecto) o fue alterado. Un `uid` incorrecto recibe la misma respuesta. Una contraseña débil llena `fields.new_password`, y una confirmación que no coincide llena `fields.new_password2` |
+| `429` | `{"code": "throttled", ...}` | Más requests que `THROTTLE_PASSWORD_RATE` desde la misma IP (5 por hora por defecto, compartido por las dos rutas) |
+
+Un link sirve una sola vez: guardar la contraseña cambia aquello con lo que se firmó el token, y hacer login después de pedirlo también. Un reset confirmado cierra todas las sesiones del usuario, como cualquier cambio de contraseña, y borra los logins fallidos que habían bloqueado la cuenta (ver [Bloqueo de cuenta](#bloqueo-de-cuenta)). El email sale en segundo plano, así que pedir un reset tarda lo mismo exista la cuenta o no.
+
+`FRONTEND_PASSWORD_RESET_URL` es obligatoria en todos los entornos. Dejala entre comillas en el `.env`: el `&` de la query string rompe la línea cuando un shell hace `source .env`.
+
+### Verificación de email
+
+`POST /api/v1/auth/register/` responde `201` con el `email`, el `first_name` y el `last_name` enviados, tenga cuenta el email o no. Con un email existente no se crea ni se cambia nada, y al dueño le llega un email avisando que alguien intentó registrarse con él. El duplicado tarda en responder lo mismo que una cuenta nueva, así que el tiempo tampoco lo delata. Un body que no pasa la validación (contraseñas que no coinciden, una contraseña débil) sigue recibiendo `400`.
+
+Con `REQUIRE_EMAIL_VERIFICATION=True`, la cuenta nueva además recibe un email con un link armado desde `FRONTEND_EMAIL_VERIFICATION_URL`, y no puede entrar hasta seguirlo:
+
+1. Mientras tanto, el login responde `401` con el mismo body que una contraseña incorrecta. Una respuesta distinta le diría a quien registró un email si ese email ya tenía cuenta. Después de registrarse, el frontend puede mostrar "revisá tu email, o pedí otro link".
+2. La página del frontend manda los dos valores del link:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/verify-email/ \
+     -H "Content-Type: application/json" -d '{"uid": "<uid>", "token": "<token>"}'
+   ```
+
+   Responde `204`, y desde ese momento el login funciona. Un link usado, vencido (`EMAIL_VERIFICATION_TIMEOUT_HOURS`, 24 por defecto) o alterado recibe `400` con `{"code": "invalid", "detail": "Invalid input.", "fields": {"token": ["Invalid or expired link."]}}`.
+3. `POST /api/v1/auth/verify-email/resend/` con `{"email": "..."}` manda un link nuevo. Responde siempre `200` con el mismo body, y solo manda el email si la cuenta existe, está activa y sigue pendiente.
+
+Las dos rutas comparten `THROTTLE_VERIFY_EMAIL_RATE` (5 por hora por defecto, por IP). Los usuarios creados en el admin o con `create_admin_auto`, y los que ya existían, cuentan como verificados. El admin muestra la columna y el filtro "Email verified", y el campo se puede marcar a mano. Un usuario desactivado sigue desactivado: verificar nunca toca `is_active`. Apagar el flag deja entrar a las cuentas pendientes.
+
+Con `REQUIRE_EMAIL_VERIFICATION=False` (el default), la cuenta nueva entra enseguida. El `201` esconde el duplicado, pero probar el login con la contraseña recién usada igual muestra si la cuenta era nueva: para cerrar eso hace falta la verificación activa.
+
 ### Límites de requests
 
-El login admite 10 requests cada 10 minutos y el registro 5 por hora, contados por IP del cliente. La request siguiente recibe `429` hasta que el período libera un lugar, con la espera en segundos en el header `Retry-After` y en `detail`:
+El login admite 10 requests cada 10 minutos; el registro, el cambio y la recuperación de contraseña y la verificación de email, 5 por hora cada uno. Se cuentan por IP del cliente, salvo el cambio de contraseña, que se cuenta por usuario. La request siguiente recibe `429` hasta que el período libera un lugar, con la espera en segundos en el header `Retry-After` y en `detail`:
 
 ```json
 {"code": "throttled", "detail": "Request was throttled. Expected available in 542 seconds.", "fields": {}}
@@ -745,7 +825,7 @@ from core.emails import send_templated_email
 send_templated_email("emails/welcome", user.email, {"name": user.first_name})
 ```
 
-Las plantillas se renderizan en el idioma activo, así que `{% translate %}` y `{% blocktranslate %}` funcionan como en cualquier plantilla. El email sale en un hilo aparte cuando la transacción de la base hace commit: el request no espera al servidor SMTP, y si la transacción se revierte no se manda nada. Un error de envío queda en el log `core.emails` con el nombre de la plantilla, sin el destinatario. Cada envío espera hasta 10 segundos al servidor. Si el proceso se corta justo en ese momento, ese email se pierde.
+Las plantillas se renderizan en el idioma activo, así que `{% translate %}` y `{% blocktranslate %}` funcionan como en cualquier plantilla. También escapan HTML como cualquier plantilla: envolvé `subject.txt` y `body.txt` en `{% autoescape off %}`, o un link con `&` llega como `&amp;` en la versión de texto plano. El email sale en un hilo aparte cuando la transacción de la base hace commit: el request no espera al servidor SMTP, y si la transacción se revierte no se manda nada. Un error de envío queda en el log `core.emails` con el nombre de la plantilla, sin el destinatario. Cada envío espera hasta 10 segundos al servidor. Si el proceso se corta justo en ese momento, ese email se pierde.
 
 ## Auditoría
 

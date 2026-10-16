@@ -22,6 +22,7 @@ DEFAULT_RATES = {
     "login": "10/10m",
     "register": "5/h",
     "password": "5/h",
+    "verify_email": "5/h",
 }
 
 

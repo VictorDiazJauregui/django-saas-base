@@ -76,3 +76,34 @@ def validate_trusted_proxy_count(count):
             "number of proxies in front of Django that append to X-Forwarded-For."
         )
     return count
+
+
+def parse_positive_int(name, raw_value):
+    try:
+        value = int(raw_value)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ImproperlyConfigured(
+            f"{name}={raw_value!r} is not valid. Use a whole number greater than 0."
+        )
+    return value
+
+
+LOCKOUT_FIELDS = ("username", "ip_address", "user_agent")
+
+
+def parse_lockout_combination(raw_combination):
+    fields = [field.strip() for field in raw_combination.split("+")]
+    if not all(field in LOCKOUT_FIELDS for field in fields):
+        raise ImproperlyConfigured(
+            f"AXES_LOCKOUT_PARAMETERS has {raw_combination!r}. Join fields with '+' and "
+            f"separate combinations with ',', using only: {', '.join(LOCKOUT_FIELDS)}."
+        )
+    return fields if len(fields) > 1 else fields[0]
+
+
+# axes takes a list where a plain field locks on its own and a list of fields locks on
+# their combination: "username+ip_address,user_agent" -> [["username", "ip_address"], "user_agent"].
+def parse_lockout_parameters(raw_value):
+    return [parse_lockout_combination(part) for part in raw_value.split(",")]

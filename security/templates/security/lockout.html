@@ -1,0 +1,19 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Account locked" %} | {{ site_title|default:_("Django site admin") }}{% endblock %}
+
+{% block nav-breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p class="errornote">
+    {% blocktranslate count minutes=cool_off_minutes trimmed %}
+      Too many failed login attempts. Try again in {{ minutes }} minute.
+    {% plural %}
+      Too many failed login attempts. Try again in {{ minutes }} minutes.
+    {% endblocktranslate %}
+  </p>
+  <p>{% translate "An administrator can unlock the account before that." %}</p>
+</div>
+{% endblock %}

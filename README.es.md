@@ -341,6 +341,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header. La usan los límites de requests y la auditoría. Un número negativo no deja arrancar Django | `0` |
 | `CACHE_URL` | Django | Cache donde se cuentan los límites | `locmemcache://` |
 | `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Claves extra que la auditoría censura, separadas por coma. Ver [Auditoría](#auditoría) | *(vacía)* |
+| `AUDIT_PAYLOAD_MAX_BYTES` | Django | Body más grande que guarda la auditoría, en bytes. Uno más grande se guarda como una marca con su tamaño. `0` es sin límite. Un número negativo o un texto no deja arrancar Django | `65536` |
 | `JWT_ACCESS_MINUTES` | Django | Duración del token `access`, en minutos. Ver [Tokens](#tokens) | `5` |
 | `JWT_REFRESH_DAYS` | Django | Duración del token `refresh`, en días | `1` |
 | `JWT_SIGNING_KEY` | Django | Clave con la que se firman los tokens. Vacía: `SECRET_KEY` | *(vacía)* |
@@ -556,9 +557,22 @@ El panel de administración está en `/admin/`.
 
 ## Auditoría
 
-`security.middleware.AuditMiddleware` guarda cada `POST`, `PUT`, `PATCH` y `DELETE` en `AuditLog`: usuario, IP, user agent, método, path y el body JSON. Se consulta en el admin, en **Security › Audit Logs**.
+`security.middleware.AuditMiddleware` guarda cada `POST`, `PUT`, `PATCH` y `DELETE` en `AuditLog`: usuario, IP, user agent, método, path, el status de la respuesta y el body. Se consulta en el admin, en **Security › Audit Logs**.
 
-En el admin la auditoría es de solo lectura: nadie, ni siquiera un superusuario, puede agregar, editar o borrar registros. Un usuario staff necesita el permiso `security.view_auditlog` para verla.
+En el admin la auditoría es de solo lectura: nadie, ni siquiera un superusuario, puede agregar, editar o borrar registros. Los registros viejos se borran con [`purge_audit_logs`](#purga-de-registros-viejos). Un usuario staff necesita el permiso `security.view_auditlog` para verla.
+
+### Bodies que se guardan
+
+| `Content-Type` | Qué se guarda |
+|---|---|
+| `application/json` | El JSON parseado |
+| `application/x-www-form-urlencoded` | Los campos del formulario, en cualquier método. Es el que usan los formularios del admin |
+| `multipart/form-data` | Los campos del formulario de un `POST`. Los archivos subidos nunca se leen ni se guardan. Un `PUT` o un `PATCH` guarda `{}` |
+| Cualquier otro | `{}` |
+
+Los campos con un solo valor se guardan como texto, y los repetidos como lista. El token CSRF (`csrfmiddlewaretoken`) se descarta. Todo body pasa por la censura de abajo, así que las contraseñas del login del admin y de los formularios de usuario (`password`, `password1`, `password2`) se guardan como `[REDACTED]`. El email del login del admin se guarda en claro en `username`, igual que el login de la API guarda `email`.
+
+Los campos de un formulario pueden tener datos personales. Las claves de tus formularios que no se deben guardar van en `AUDIT_EXTRA_SENSITIVE_KEYS`.
 
 ### IP del cliente
 
@@ -584,6 +598,52 @@ Los valores cuya clave parece una credencial se guardan como `[REDACTED]`, a cua
 Las palabras cortas solo coinciden con la clave entera: como fragmento, `pin` también ocultaría `shipping`. Para claves propias del proyecto, listalas en `AUDIT_EXTRA_SENSITIVE_KEYS`. Coinciden con la clave entera después de la misma normalización: `AUDIT_EXTRA_SENSITIVE_KEYS=tax-id,iban` censura `tax_id`, `taxId` e `IBAN`, pero no `tax_id_type`.
 
 Los registros guardados antes de sumar una clave conservan su valor.
+
+### Tamaño del payload
+
+Los bodies de más de `AUDIT_PAYLOAD_MAX_BYTES` (64 KB por defecto) no se guardan. En su lugar, el registro guarda una marca con el tamaño:
+
+```json
+{"_omitted": "payload_too_large", "size_bytes": 2097152}
+```
+
+El tamaño se mide antes de parsear el body, así que un body demasiado grande nunca se parsea. En `multipart/form-data` se mide lo que ocupan los campos guardados, sin los archivos. Nunca se corta un body a la mitad: un JSON truncado sería inválido y podría terminar antes de que se censure una clave sensible. Con `0` se guardan todos.
+
+Django rechaza con `400` los bodies de más de `DATA_UPLOAD_MAX_MEMORY_SIZE` (2,5 MB por defecto) antes de que el request llegue a la vista, y esos requests no dejan registro de auditoría.
+
+### Purga de registros viejos
+
+La auditoría crece con cada request y desde el admin no se pueden borrar registros. `purge_audit_logs` borra los que tienen más de una cantidad de días:
+
+```bash
+python manage.py purge_audit_logs --older-than 90
+```
+
+```text
+About to delete 1520 audit log records, from 2026-01-03 to 2026-07-17 inclusive.
+Continue? [y/N]
+```
+
+| Opción | Efecto |
+|---|---|
+| `--older-than DAYS` | Obligatoria, 1 o más. Cuenta días completos en `TIME_ZONE`: corrida el 2026-10-16, `--older-than 30` borra hasta el 2026-09-15 inclusive y conserva todo desde el 2026-09-16 |
+| `--dry-run` | Muestra la cantidad y el rango, y no borra nada |
+| `--no-input` | Borra sin preguntar. Sin esta opción y sin terminal, el comando termina con un error |
+
+Si no hay nada para borrar, lo dice y no pregunta. Los registros se borran en lotes de 5000, cada uno en su propia transacción, así que la tabla nunca queda bloqueada durante toda la purga.
+
+En Linux y WSL, con cron (`crontab -e`), ajustando las rutas y el período:
+
+```text
+30 3 * * * cd /path/to/project && .venv/bin/python manage.py purge_audit_logs --older-than 90 --no-input
+```
+
+En Windows, con el Programador de tareas, desde PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\python.exe" -Argument "manage.py purge_audit_logs --older-than 90 --no-input" -WorkingDirectory "C:\path\to\project"
+Register-ScheduledTask -TaskName "purge_audit_logs" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3:30am)
+```
 
 ---
 

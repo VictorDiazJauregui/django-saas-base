@@ -1,0 +1,19 @@
+# GitHub reads this file from the default branch (main): it takes effect after a release.
+# Version updates go to staging, like any other change. Dependabot updates pyproject.toml
+# and uv.lock but not the requirements files: see CONTRIBUTING.md before merging.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "staging"
+    commit-message:
+      prefix: "CHORE"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "staging"
+    commit-message:
+      prefix: "CI"

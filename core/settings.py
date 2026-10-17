@@ -87,7 +87,8 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",  # i18n
-    "django.middleware.common.CommonMiddleware",
+    # CommonMiddleware, but a missing trailing slash under /api/ gets a JSON error, not a redirect.
+    "core.middleware.ApiCommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

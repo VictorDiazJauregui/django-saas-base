@@ -29,6 +29,11 @@ msgstr "Mensajes por campo, solo en errores de validación; {} en los demás."
 msgid "Seconds to wait before trying again."
 msgstr "Segundos que hay que esperar antes de volver a intentar."
 
+#: core/exceptions.py:74
+#, python-format
+msgid "This route ends with a slash: use %(path)s."
+msgstr "Esta ruta termina en barra: usa %(path)s."
+
 #: core/health_schema.py:26
 msgid "Check that the API and its database answer"
 msgstr "Comprueba que la API y su base de datos responden"

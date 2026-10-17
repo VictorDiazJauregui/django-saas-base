@@ -1,4 +1,5 @@
 from django.http import JsonResponse
+from django.utils.translation import gettext
 from django.views import defaults
 from rest_framework import status
 from rest_framework.exceptions import APIException, NotFound, ValidationError
@@ -8,6 +9,7 @@ from rest_framework.views import exception_handler
 API_PATH_PREFIX = "/api/"
 SERVER_ERROR_CODE = "server_error"
 FALLBACK_CODE = "error"
+TRAILING_SLASH_CODE = "trailing_slash_required"
 
 
 def build_error_body(code, detail, fields=None):
@@ -66,3 +68,11 @@ def api_server_error(request):
         return defaults.server_error(request)
     body = build_error_body(SERVER_ERROR_CODE, APIException.default_detail)
     return JsonResponse(body, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def trailing_slash_response(path_with_slash):
+    detail = gettext("This route ends with a slash: use %(path)s.") % {
+        "path": path_with_slash
+    }
+    body = build_error_body(TRAILING_SLASH_CODE, detail)
+    return JsonResponse(body, status=status.HTTP_404_NOT_FOUND)

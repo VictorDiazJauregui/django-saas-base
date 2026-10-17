@@ -205,6 +205,9 @@ STORAGES = {
         )
     },
 }
+# Without collectstatic there is no STATIC_ROOT: outside staging and prod, whitenoise looks
+# the files up on each request instead of warning that the directory is missing.
+WHITENOISE_AUTOREFRESH = not is_deployed(ENVIRONMENT)
 
 
 # --- Logging ---

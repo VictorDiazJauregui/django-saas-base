@@ -77,6 +77,18 @@ class StaticFilesSettingsTests(SimpleTestCase):
 
                 self.assertEqual(storages["staticfiles"]["BACKEND"], PLAIN_STORAGE)
 
+    def test_whitenoise_only_refreshes_outside_deployed_environments(self):
+        cases = (
+            ({"ENVIRONMENT": "prod"}, False),
+            ({"ENVIRONMENT": "staging"}, False),
+            ({"ENVIRONMENT": "ci", "ALLOWED_HOSTS": ""}, True),
+        )
+        for overrides, expected in cases:
+            with self.subTest(environment=overrides["ENVIRONMENT"]):
+                values = read_settings(["WHITENOISE_AUTOREFRESH"], **overrides)
+
+                self.assertEqual(values["WHITENOISE_AUTOREFRESH"], expected)
+
     def test_whitenoise_comes_right_after_the_security_middleware(self):
         middleware = read_settings(["MIDDLEWARE"])["MIDDLEWARE"]
 

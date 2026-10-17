@@ -98,11 +98,14 @@ class AuditLog(models.Model):
     Model to store audit logs for modification requests.
     """
 
+    # auditlog_user_timestamp_idx starts with user and serves every lookup by user, including
+    # the SET NULL when a user is deleted; the FK's own index would only add a write per request.
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
         verbose_name=_("User"),
     )
     ip_address = models.GenericIPAddressField(_("IP Address"), null=True, blank=True)

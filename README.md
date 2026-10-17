@@ -585,13 +585,15 @@ Every error under `/api/` has the same shape, whatever its status:
 | `400` | `invalid` (with `fields`), `parse_error` (the body isn't valid JSON) |
 | `401` | `not_authenticated` (no token), `token_not_valid` (expired, malformed or blacklisted token), `no_active_account` (wrong email or password), `authentication_failed` |
 | `403` | `permission_denied` |
-| `404` | `not_found`, also for a route that doesn't exist |
+| `404` | `not_found`, also for a route that doesn't exist. `trailing_slash_required` for an API route written without its trailing slash (`/api/v1/auth/login`): `detail` gives the right path |
 | `405` | `method_not_allowed` |
 | `406` | `not_acceptable` (the client only accepts a format other than JSON) |
 | `429` | `throttled` (rate limit), `account_locked_out` (lockout). The wait in seconds is in the `Retry-After` header |
 | `500` | `server_error` |
 
 With `DEBUG=True` a route that doesn't exist and an unhandled error still show Django's debug page, which lists the routes and the traceback. Outside `/api/`, the admin keeps its HTML pages.
+
+Every API route ends with `/`. Without it, Django would redirect to the route with the slash, and the redirect drops the body of a `POST`, `PUT`, `PATCH` or `DELETE`. Under `/api/` the API answers `404` with `code` `trailing_slash_required` instead, with any `DEBUG` value and any method, `GET` included. The admin still redirects (`/admin` → `/admin/`).
 
 The format comes from `core.exceptions.api_exception_handler`. To use your own, point `EXCEPTION_HANDLER` at it in `REST_FRAMEWORK` (`core/settings.py`):
 
@@ -936,6 +938,8 @@ The templates render in the active language, so `{% translate %}` and `{% blockt
 `security.middleware.AuditMiddleware` stores every `POST`, `PUT`, `PATCH` and `DELETE` in `AuditLog`: user, IP, user agent, method, path, the response status and the body. You can browse it in the admin under **Security › Audit Logs**.
 
 The admin shows the audit log read-only: nobody, superusers included, can add, edit or delete records there. Old records are deleted with [`purge_audit_logs`](#purging-old-records). Staff users need the `security.view_auditlog` permission to see it.
+
+The list filters by method, status class (`2xx`, `4xx`…) and date. The options are fixed, so loading the list never reads the whole table to build them, and it has no year/month/day bar for the same reason. Keep it that way if you add filters: a filter on a plain field (`list_filter = ("path",)`) or a `date_hierarchy` runs a `SELECT DISTINCT` over every record on each load.
 
 ### Stored bodies
 

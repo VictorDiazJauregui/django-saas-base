@@ -585,13 +585,15 @@ Todo error bajo `/api/` tiene la misma forma, sea cual sea el status:
 | `400` | `invalid` (con `fields`), `parse_error` (el body no es JSON válido) |
 | `401` | `not_authenticated` (sin token), `token_not_valid` (token vencido, malformado o en la blacklist), `no_active_account` (email o contraseña incorrectos), `authentication_failed` |
 | `403` | `permission_denied` |
-| `404` | `not_found`, también para una ruta que no existe |
+| `404` | `not_found`, también para una ruta que no existe. `trailing_slash_required` para una ruta de la API escrita sin la `/` final (`/api/v1/auth/login`): `detail` indica la ruta correcta |
 | `405` | `method_not_allowed` |
 | `406` | `not_acceptable` (el cliente solo acepta un formato que no es JSON) |
 | `429` | `throttled` (límite de requests), `account_locked_out` (bloqueo). La espera en segundos está en el header `Retry-After` |
 | `500` | `server_error` |
 
 Con `DEBUG=True`, una ruta que no existe y un error no manejado siguen mostrando la página de debug de Django, con la lista de rutas y el traceback. Fuera de `/api/`, el admin mantiene sus páginas HTML.
+
+Todas las rutas de la API terminan en `/`. Sin la barra, Django redirigiría a la ruta con barra, y esa redirección pierde el body de un `POST`, `PUT`, `PATCH` o `DELETE`. Bajo `/api/`, la API responde en cambio `404` con `code` `trailing_slash_required`, con cualquier valor de `DEBUG` y en cualquier método, `GET` incluido. El admin sigue redirigiendo (`/admin` → `/admin/`).
 
 El formato sale de `core.exceptions.api_exception_handler`. Para usar uno propio, apuntá `EXCEPTION_HANDLER` a tu función en `REST_FRAMEWORK` (`core/settings.py`):
 
@@ -936,6 +938,8 @@ Las plantillas se renderizan en el idioma activo, así que `{% translate %}` y `
 `security.middleware.AuditMiddleware` guarda cada `POST`, `PUT`, `PATCH` y `DELETE` en `AuditLog`: usuario, IP, user agent, método, path, el status de la respuesta y el body. Se consulta en el admin, en **Security › Audit Logs**.
 
 En el admin la auditoría es de solo lectura: nadie, ni siquiera un superusuario, puede agregar, editar o borrar registros. Los registros viejos se borran con [`purge_audit_logs`](#purga-de-registros-viejos). Un usuario staff necesita el permiso `security.view_auditlog` para verla.
+
+El listado filtra por método, familia de status (`2xx`, `4xx`…) y fecha. Las opciones son fijas: cargar el listado nunca recorre la tabla para armarlas, y por eso tampoco tiene la barra de año, mes y día. Si sumás filtros, conviene mantenerlo así: un filtro sobre un campo común (`list_filter = ("path",)`) o un `date_hierarchy` hace un `SELECT DISTINCT` sobre todos los registros en cada carga.
 
 ### Bodies que se guardan
 

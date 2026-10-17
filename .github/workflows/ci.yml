@@ -72,6 +72,10 @@ jobs:
       - name: Tests
         run: uv run python manage.py test
 
+      # Fails on any warning, so a view the schema can't describe shows up in the PR.
+      - name: OpenAPI schema
+        run: uv run python manage.py spectacular --validate --fail-on-warn --file "$RUNNER_TEMP/openapi-schema.yml"
+
       # Same settings a real deployment gets: fails on any security warning.
       - name: Deploy checks with production settings
         env:

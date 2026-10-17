@@ -38,6 +38,8 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **Endpoints de cuenta:** logout, el perfil propio en `/me/`, cambio y recuperación de contraseña por email, verificación de email opcional y cierre de todas las sesiones al cambiar la contraseña. El registro y la recuperación no revelan qué emails tienen cuenta.
 - **Email** por cualquier proveedor SMTP, configurado con una URL; en desarrollo se imprime en la consola.
 - **Auditoría:** cada request que modifica datos queda registrada, con los datos sensibles censurados.
+- **Esquema OpenAPI y Swagger UI** para el frontend, abiertos en desarrollo y solo para staff en producción.
+- **Roles** declarados en el código y aplicados como grupos de Django con `sync_roles`.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Internacionalización** preparada para inglés y español.
 - **Tests automáticos** de la API, la auditoría y el panel.
@@ -220,6 +222,7 @@ Con los valores por omisión:
 
 - Panel de administración: <http://localhost:8000/admin/>
 - API de autenticación: <http://localhost:8000/api/v1/auth/>
+- Documentación de la API: <http://localhost:8000/api/docs/>
 
 Para probar el inicio de sesión desde la terminal:
 
@@ -362,6 +365,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `EMAIL_VERIFICATION_TIMEOUT_HOURS` | Django | Horas que dura un link de verificación | `24` |
 | `API_PAGE_SIZE` | Django | Elementos por página de un listado. Ver [Paginación](#paginación) | `20` |
 | `API_MAX_PAGE_SIZE` | Django | El `?page_size=` más grande que puede pedir un cliente. `API_PAGE_SIZE` no puede superarlo | `100` |
+| `API_DOCS_ENABLED` | Django | Quién ve `/api/schema/` y `/api/docs/`. Vacía: cualquiera en `local` y `ci`, solo staff en `staging` y `prod`. Ver [Documentación de la API](#documentación-de-la-api) | *(vacío)* |
 | `CORS_ALLOWED_ORIGINS` | Django | Orígenes que pueden llamar a `/api/` desde un navegador, separados por coma, con esquema y puerto. Vacía: ninguno. Ver [CORS](#cors) | *(vacía)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Nombre del proyecto. De él salen el volumen y la red | `saas` |
 | `DB_CONTAINER_NAME` | Compose | Nombre del contenedor de PostgreSQL | `saas_db` |
@@ -413,6 +417,8 @@ Lo que conviene saber antes de salir a producción:
 - **Subí `SECURE_HSTS_SECONDS` a `31536000`** (un año) cuando todas las páginas funcionen por HTTPS. El navegador guarda el valor: bajarlo después solo afecta a visitantes nuevos.
 - **`SECURE_HSTS_PRELOAD=True` es casi irreversible.** La lista de precarga viene dentro de los navegadores y salir de ella tarda meses. Por eso está apagado y su aviso de `check --deploy` queda silenciado mientras siga así; lo mismo vale para `SECURE_HSTS_INCLUDE_SUBDOMAINS`.
 - **`CSRF_TRUSTED_ORIGINS`** solo hace falta si el admin u otro formulario se envía desde un origen distinto del que lo sirve. Un origen comodín total como `https://*` se rechaza en `staging` y `prod`.
+- **En cada despliegue, corré `migrate` y después `sync_roles`**, así los grupos coinciden con `core/roles.py`. Ver [Roles](#roles).
+- **La documentación de la API es solo para staff** en `staging` y `prod`. Ver [Documentación de la API](#documentación-de-la-api).
 
 ### El superusuario
 
@@ -474,6 +480,50 @@ Con eso, cada uno tiene su contenedor, su volumen de datos, su red y sus puertos
 | `POST` | `/api/v1/auth/verify-email/resend/` | Manda por email un link de verificación nuevo | `email` |
 
 Las rutas que agregues exigen autenticación por omisión: enviá el token en el header `Authorization: Bearer <access>`.
+
+### Documentación de la API
+
+| Ruta | Qué sirve |
+|---|---|
+| `GET /api/schema/` | Esquema OpenAPI 3 de la API, en YAML. `?format=json` lo devuelve en JSON |
+| `GET /api/docs/` | Swagger UI: cada endpoint con su body, sus respuestas y ejemplos, y un botón **Authorize** para probarlos con un token |
+
+Quién las ve depende de `API_DOCS_ENABLED`:
+
+| `API_DOCS_ENABLED` | Quién ve las docs |
+|---|---|
+| Vacía (por defecto) | Cualquiera en `local` y `ci`; solo staff en `staging` y `prod` |
+| `True` | Cualquiera, en todos los entornos |
+| `False` | Solo usuarios staff activos |
+
+- Un staff entra con la sesión del admin (inicia sesión en `/admin/` y abre `/api/docs/` en el mismo navegador) o con un token.
+- El resto recibe el mismo `404` que una ruta que no existe.
+- `True` en `staging` o `prod` publica la documentación de tu API. Es una decisión para APIs públicas, no un default.
+- Swagger UI lo sirve el propio backend (`drf-spectacular-sidecar`), sin CDN. En `staging` y `prod` necesita los archivos estáticos servidos, igual que el admin.
+
+Un frontend puede generar sus tipos y su cliente a partir del esquema, por ejemplo con [openapi-typescript](https://openapi-ts.dev/):
+
+```bash
+npx openapi-typescript http://localhost:8000/api/schema/ -o src/api/schema.d.ts
+```
+
+El esquema lo arma [drf-spectacular](https://drf-spectacular.readthedocs.io/). Una vista con `serializer_class` se documenta sola; lo que el código no dice (un `204` sin body, los errores) va en `extend_schema`. Los errores tienen la forma de [Errores](#errores) y se documentan con `core.api_schema.error_responses`, que recibe los códigos de error que la vista puede responder:
+
+```python
+from drf_spectacular.utils import extend_schema
+
+from core.api_schema import RETRY_AFTER_HEADER, error_responses
+
+
+@extend_schema(
+    parameters=[RETRY_AFTER_HEADER],  # solo si la vista tiene límite de requests
+    responses={204: None, **error_responses("invalid", "not_authenticated", "throttled")},
+)
+class ArchiveInvoiceView(GenericAPIView):
+    ...
+```
+
+La CI corre `python manage.py spectacular --validate --fail-on-warn` y falla si el esquema tiene algún aviso, por ejemplo una vista que drf-spectacular no sabe describir.
 
 La API responde JSON. Solo con `DEBUG=True` una ruta abierta en el navegador muestra el Browsable API de DRF; en `staging` y `prod` el navegador también recibe JSON.
 
@@ -780,11 +830,37 @@ class ReportView(ListAPIView):
 ```
 
 - `HasPermission("app_label.codename")` deja pasar si el usuario tiene ese permiso, directo o por uno de sus grupos (`user.has_perm`). Un nombre sin la app impide que Django arranque cuando se importa la vista.
-- `HasRole("nombre")` deja pasar si el usuario pertenece al `Group` de Django con ese nombre. Los grupos se crean en el admin, en "Authentication and Authorization" → "Groups".
+- `HasRole("nombre")` deja pasar si el usuario pertenece al `Group` de Django con ese nombre. Los grupos se crean en el admin, en "Authentication and Authorization" → "Groups", o desde el código con [Roles](#roles).
 - Un superusuario activo pasa las dos, así que `~HasRole(...)` deja afuera a los superusuarios.
 - Sin token responden `401`; con token y sin el permiso o el rol, `403` con `code` `permission_denied`.
 - Se combinan con `&`, `|` y `~`, entre sí y con las clases de DRF.
 - Un permiso o un rol que no existe nunca se cumple, salvo para un superusuario. Django crea cuatro permisos por modelo, con la forma `<app_label>.<add|change|delete|view>_<modelo>` (`security.view_auditlog`).
+
+#### Roles
+
+Los roles viven en el código, así todos los entornos tienen los mismos grupos. Se declaran en `core/roles.py`, cada uno con su lista de permisos:
+
+```python
+ROLES = {
+    "auditors": ["security.view_auditlog"],
+    "support": ["security.view_user", "security.change_user"],
+}
+```
+
+Después se crean o actualizan sus grupos:
+
+```bash
+python manage.py sync_roles --dry-run   # muestra qué cambiaría
+python manage.py sync_roles
+```
+
+- Cada rol queda como un `Group` de Django con ese nombre, el mismo que revisa `HasRole("auditors")`.
+- Agrega los permisos que le faltan a un grupo y quita los que ya no están declarados. Correrlo otra vez no cambia nada.
+- Un permiso que no existe se informa como aviso y el resto se aplica. Los permisos los crea `migrate`, así que `sync_roles` va después.
+- Un permiso sin la app (`view_auditlog`) frena el comando antes de cambiar nada.
+- Los grupos de la base que no están declarados se listan y se dejan como están.
+- Lo que se cambie en el admin sobre un rol declarado se pierde en la siguiente corrida: hay que editar `core/roles.py`.
+- La base no declara ningún rol. Para tenerlos en otro lado, apuntá `ROLE_DEFINITIONS` de `core/settings.py` a tu propio dict.
 
 ### CORS
 

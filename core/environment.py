@@ -102,6 +102,25 @@ def parse_non_negative_int(name, raw_value):
     return parse_int_at_least(name, raw_value, minimum=0)
 
 
+# The words django-environ reads as booleans, so every flag accepts the same values.
+BOOLEAN_WORDS = {
+    **dict.fromkeys(("true", "on", "ok", "y", "yes", "1"), True),
+    **dict.fromkeys(("false", "off", "n", "no", "0"), False),
+}
+
+
+# Empty means "use the default", so a value copied empty from .env.example keeps it.
+def parse_optional_bool(name, raw_value, default):
+    if not raw_value.strip():
+        return default
+    value = BOOLEAN_WORDS.get(raw_value.strip().lower())
+    if value is None:
+        raise ImproperlyConfigured(
+            f"{name}={raw_value!r} is not valid. Use True or False, or leave it empty."
+        )
+    return value
+
+
 def validate_page_sizes(page_size, max_page_size):
     if page_size > max_page_size:
         raise ImproperlyConfigured(

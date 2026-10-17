@@ -139,7 +139,7 @@ class AuditLogAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    @admin.display(description="Payload")
+    @admin.display(description=_("Payload"))
     def short_payload(self, obj):
         if not obj.payload:
             return EMPTY_PAYLOAD_LABEL
@@ -149,7 +149,7 @@ class AuditLogAdmin(admin.ModelAdmin):
         visible_length = SHORT_PAYLOAD_MAX_LENGTH - len(TRUNCATION_SUFFIX)
         return serialized_payload[:visible_length] + TRUNCATION_SUFFIX
 
-    @admin.display(description="Payload (formatted)")
+    @admin.display(description=_("Payload (formatted)"))
     def pretty_payload(self, obj):
         if not obj.payload:
             return EMPTY_PAYLOAD_LABEL

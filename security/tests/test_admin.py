@@ -1,4 +1,6 @@
+import re
 import uuid
+from datetime import timedelta
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -7,6 +9,7 @@ from django.db import connection
 from django.test import RequestFactory, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from security.models import AuditLog
 
@@ -321,3 +324,56 @@ class AuditLogListAdminTests(AdminTestCase):
         )
 
         self.assertNotContains(response, "3 total")
+
+
+class AuditLogMethodFilterAdminTests(AdminTestCase):
+    AUDITED_METHODS = ["DELETE", "PATCH", "POST", "PUT"]
+
+    def setUp(self):
+        super().setUp()
+        for method in self.AUDITED_METHODS:
+            AuditLog.objects.create(method=method, path=f"/{method.lower()}/")
+        # Rows in two different years, so a date bar would have to look them up.
+        AuditLog.objects.filter(method="DELETE").update(
+            timestamp=timezone.now() - timedelta(days=800)
+        )
+
+    def get_list(self, params=None):
+        return self.client.get(
+            reverse("admin:security_auditlog_changelist"), params or {}
+        )
+
+    def test_list_does_not_look_up_distinct_values_in_the_table(self):
+        with CaptureQueriesContext(connection) as queries:
+            self.get_list()
+
+        distinct_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if "DISTINCT" in query["sql"] and "security_auditlog" in query["sql"]
+        ]
+        self.assertEqual(distinct_queries, [])
+
+    def test_list_runs_a_fixed_number_of_queries(self):
+        with self.assertNumQueries(4):
+            self.get_list()
+
+    def test_offers_every_audited_method_in_order(self):
+        response = self.get_list()
+
+        offered = re.findall(r"\?method=([A-Z]+)", response.content.decode())
+        self.assertEqual(offered, self.AUDITED_METHODS)
+
+    def test_each_option_lists_only_its_method(self):
+        for method in self.AUDITED_METHODS:
+            with self.subTest(method=method):
+                response = self.get_list({"method": method})
+
+                listed = [entry.method for entry in response.context["cl"].result_list]
+                self.assertEqual(listed, [method])
+
+    def test_a_method_that_is_not_audited_lists_nothing(self):
+        response = self.get_list({"method": "GET"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["cl"].result_list), 0)

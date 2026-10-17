@@ -14,6 +14,7 @@ from core.environment import (
     is_deployed,
     parse_lockout_parameters,
     parse_non_negative_int,
+    parse_optional_bool,
     parse_positive_int,
     silenced_hsts_checks,
     validate_allowed_hosts,
@@ -68,6 +69,8 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "axes",
     "corsheaders",
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
     # Local apps
     "security.apps.SecurityConfig",
 ]
@@ -233,6 +236,10 @@ CORS_EXPOSE_HEADERS = ["Retry-After"]
 # False closes POST /api/v1/auth/register/; the admin and create_admin_auto still add users.
 ALLOW_PUBLIC_REGISTRATION = env.bool("ALLOW_PUBLIC_REGISTRATION", default=True)
 
+# --- Roles ---
+# The roles sync_roles applies as Django groups. Point it at your own module to declare them.
+ROLE_DEFINITIONS = "core.roles.ROLES"
+
 # --- Account emails ---
 # The API has no pages: the emails link to the frontend, which sends {uid} and {token} back.
 FRONTEND_PASSWORD_RESET_URL = validate_frontend_link_url(
@@ -296,6 +303,26 @@ REST_FRAMEWORK = {
     + (("rest_framework.renderers.BrowsableAPIRenderer",) if DEBUG else ()),
     "DEFAULT_PAGINATION_CLASS": "core.pagination.ConfigurablePageNumberPagination",
     "PAGE_SIZE": API_PAGE_SIZE,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# --- API docs ---
+# True serves /api/schema/ and /api/docs/ to anyone; False only to active staff users, logged
+# in to the admin or with a token. Empty keeps the default: open in local and ci only.
+API_DOCS_ENABLED = parse_optional_bool(
+    "API_DOCS_ENABLED",
+    env.str("API_DOCS_ENABLED", default=""),
+    default=not is_deployed(ENVIRONMENT),
+)
+SPECTACULAR_SETTINGS = {
+    "TITLE": "API",
+    "VERSION": "v1",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Separate request and response types, so write-only fields such as passwords don't
+    # show up in the response types a frontend generates.
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
 }
 
 # --- JWT ---

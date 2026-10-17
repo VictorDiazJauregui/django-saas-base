@@ -1,9 +1,10 @@
 import logging
 
-from core.log_formatters import JsonFormatter
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
+
+from core.log_formatters import JsonFormatter
 
 from .api_test_case import CacheResetAPITestCase
 from .test_throttling import WRONG_PASSWORD, override_rates

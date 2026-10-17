@@ -47,6 +47,7 @@ PRODUCTION_ENVIRONMENT = {
     "CORS_ALLOWED_ORIGINS": "",
     "API_PAGE_SIZE": "20",
     "API_MAX_PAGE_SIZE": "100",
+    "API_DOCS_ENABLED": "",
     "DB_NAME": "unused",
     "DB_USER": "unused",
     "DB_PASSWORD": "not-the-example-password",

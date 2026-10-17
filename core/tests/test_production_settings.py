@@ -301,3 +301,31 @@ class PaginationStartupTests(SimpleTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("API_PAGE_SIZE=200", result.stderr)
         self.assertIn("API_MAX_PAGE_SIZE=100", result.stderr)
+
+
+class ApiDocsStartupTests(SimpleTestCase):
+    def test_docs_are_open_only_in_development_by_default(self):
+        expected = {"local": True, "ci": True, "staging": False, "prod": False}
+        for environment, enabled in expected.items():
+            with self.subTest(environment=environment):
+                values = read_settings(["API_DOCS_ENABLED"], ENVIRONMENT=environment)
+
+                self.assertIs(values["API_DOCS_ENABLED"], enabled)
+
+    def test_docs_can_be_opened_in_production_explicitly(self):
+        values = read_settings(["API_DOCS_ENABLED"], API_DOCS_ENABLED="True")
+
+        self.assertIs(values["API_DOCS_ENABLED"], True)
+
+    def test_docs_can_be_closed_locally(self):
+        values = read_settings(
+            ["API_DOCS_ENABLED"], ENVIRONMENT="local", API_DOCS_ENABLED="False"
+        )
+
+        self.assertIs(values["API_DOCS_ENABLED"], False)
+
+    def test_value_that_is_not_a_boolean_fails_to_start(self):
+        result = run_manage_command(["check"], API_DOCS_ENABLED="maybe")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("API_DOCS_ENABLED='maybe'", result.stderr)

@@ -1,0 +1,11 @@
+# Secrets and local state never go into the image: only .env.example does.
+.env*
+!.env.example
+.git
+.venv
+**/__pycache__
+.ruff_cache
+.coverage
+.coverage.*
+htmlcov
+staticfiles

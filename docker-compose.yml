@@ -2,7 +2,7 @@ name: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME in the .env file}
 
 services:
   db:
-    image: postgres:18-alpine
+    image: postgres:18.6-alpine
     container_name: ${DB_CONTAINER_NAME:?Set DB_CONTAINER_NAME in the .env file}
     environment:
       POSTGRES_DB: ${DB_NAME:?Set DB_NAME in the .env file}
@@ -19,6 +19,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Off by default: docker compose up starts only the database. Add --profile app to run
+  # the production image against it.
+  app:
+    profiles: ["app"]
+    build: .
+    env_file:
+      - ${APP_ENV_FILE:-.env}
+    environment:
+      # Inside the Compose network the database is the db service, not localhost.
+      DB_HOST: db
+      DB_PORT: "5432"
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:

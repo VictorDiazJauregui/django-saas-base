@@ -26,6 +26,7 @@ from core.environment import (
     validate_page_sizes,
     validate_trusted_proxy_count,
 )
+from core.logging_config import build_logging_config, parse_log_format, parse_log_level
 from core.throttle_rates import validate_rate
 
 # Initialize django-environ
@@ -80,6 +81,8 @@ INSTALLED_APPS += [app for app in OPTIONAL_DEVELOPMENT_APPS if find_spec(app)]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Right after SecurityMiddleware, as whitenoise asks: it serves the static files itself.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     # Before CommonMiddleware, as django-cors-headers asks: it answers preflights early.
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -125,6 +128,11 @@ DATABASES = {
         "PASSWORD": env("DB_PASSWORD"),
         "HOST": env("DB_HOST"),
         "PORT": env("DB_PORT"),
+        # Seconds a connection stays open for the next request; 0 closes it after each one.
+        "CONN_MAX_AGE": parse_non_negative_int(
+            "DB_CONN_MAX_AGE", env.str("DB_CONN_MAX_AGE", default="60")
+        ),
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
@@ -185,6 +193,26 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/stable/howto/static-files/
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# The hashed, compressed files need collectstatic first, which local work and the tests
+# never run: only staging and prod use them.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if is_deployed(ENVIRONMENT)
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        )
+    },
+}
+
+
+# --- Logging ---
+# Everything goes to the console: text for local work, json for log collectors.
+LOGGING = build_logging_config(
+    parse_log_level(env.str("LOG_LEVEL", default="INFO")),
+    parse_log_format(env.str("LOG_FORMAT", default="text")),
+)
 
 
 # --- Cache ---
@@ -370,6 +398,8 @@ AXES_CLIENT_IP_CALLABLE = "core.client_ip.get_client_ip"
 # staging and prod only serve HTTPS; local and ci keep Django's plain HTTP defaults.
 DEPLOYED = is_deployed(ENVIRONMENT)
 SECURE_SSL_REDIRECT = DEPLOYED
+# Orchestrators and load balancers probe the container over plain HTTP.
+SECURE_REDIRECT_EXEMPT = [r"^api/v1/health/$"]
 SESSION_COOKIE_SECURE = DEPLOYED
 CSRF_COOKIE_SECURE = DEPLOYED
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=3600) if DEPLOYED else 0

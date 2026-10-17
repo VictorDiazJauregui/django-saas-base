@@ -60,7 +60,8 @@ class HealthTests(CacheResetAPITestCase):
 
     def test_answers_503_when_the_database_is_down(self):
         with database_down(), self.assertLogs("core.health", "ERROR") as logs:
-            response = self.client.get(HEALTH_URL)
+            with self.assertLogs("django.request", "ERROR"):
+                response = self.client.get(HEALTH_URL)
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.json(), UNHEALTHY)
@@ -98,6 +99,7 @@ class HealthBehindHttpsRedirectTests(CacheResetAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
 
     def test_unknown_hosts_are_still_rejected(self):
-        response = self.client.get(HEALTH_URL, HTTP_HOST="10.0.0.12")
+        with self.assertLogs("django.security.DisallowedHost", "ERROR"):
+            response = self.client.get(HEALTH_URL, HTTP_HOST="10.0.0.12")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -20,3 +20,11 @@ class AuditLogIndexTests(TestCase):
             self.index_columns()["auditlog_user_timestamp_idx"],
             ["user_id", "timestamp"],
         )
+
+    def test_no_index_covers_only_the_user(self):
+        user_only_indexes = [
+            name
+            for name, columns in self.index_columns().items()
+            if columns == ["user_id"]
+        ]
+        self.assertEqual(user_only_indexes, [])

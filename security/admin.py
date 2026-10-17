@@ -7,6 +7,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from .forms import EmailUserChangeForm, EmailUserCreationForm
+from .middleware import AUDITED_METHODS
 from .models import AuditLog
 
 User = get_user_model()
@@ -82,6 +83,21 @@ class StatusClassListFilter(admin.SimpleListFilter):
         return queryset.filter(status_code__range=status_range)
 
 
+# Only the audited methods can be stored, so the options are fixed instead of read with a
+# SELECT DISTINCT over the whole table on every page load.
+class AuditedMethodListFilter(admin.SimpleListFilter):
+    title = AuditLog._meta.get_field("method").verbose_name
+    parameter_name = "method"
+
+    def lookups(self, request, model_admin):
+        return [(method, method) for method in sorted(AUDITED_METHODS)]
+
+    def queryset(self, request, queryset):
+        if self.value() is None:
+            return queryset
+        return queryset.filter(method=self.value())
+
+
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
     list_display = (
@@ -93,7 +109,9 @@ class AuditLogAdmin(admin.ModelAdmin):
         "ip_address",
         "short_payload",
     )
-    list_filter = ("method", StatusClassListFilter, "timestamp")
+    # No date_hierarchy: its year/month/day bar runs a SELECT DISTINCT over the whole table on
+    # every load. The timestamp filter covers the usual ranges without reading the table.
+    list_filter = (AuditedMethodListFilter, StatusClassListFilter, "timestamp")
     list_select_related = ("user",)
     show_full_result_count = False
     search_fields = (
@@ -113,7 +131,6 @@ class AuditLogAdmin(admin.ModelAdmin):
         "pretty_payload",
         "timestamp",
     )
-    date_hierarchy = "timestamp"
     ordering = ("-timestamp",)
     list_per_page = 25
 

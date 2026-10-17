@@ -263,7 +263,8 @@ class AuditStatusCodeTests(CacheResetAPITestCase):
     def test_stores_500_when_the_view_raises(self):
         self.client.raise_request_exception = False
 
-        response = self.client.post("/failing/", {}, format="json")
+        with self.assertLogs("django.request", "ERROR"):
+            response = self.client.post("/failing/", {}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(

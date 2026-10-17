@@ -1,0 +1,371 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: django-saas-base\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-17 14:20+0000\n"
+"PO-Revision-Date: 2026-10-17 14:30+0000\n"
+"Last-Translator: django-saas-base\n"
+"Language-Team: Spanish\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? "
+"1 : 2;\n"
+
+#: core/api_schema.py:9
+msgid "Fixed identifier for the frontend to branch on."
+msgstr "Identificador fijo, para que el frontend decida qué hacer."
+
+#: core/api_schema.py:12
+msgid "Message for a person, in the request's language."
+msgstr "Mensaje para una persona, en el idioma del request."
+
+#: core/api_schema.py:16
+msgid "Messages per field, only in validation errors; {} otherwise."
+msgstr "Mensajes por campo, solo en errores de validación; {} en los demás."
+
+#: core/api_schema.py:44
+msgid "Seconds to wait before trying again."
+msgstr "Segundos que hay que esperar antes de volver a intentar."
+
+#: core/health_schema.py:26
+msgid "Check that the API and its database answer"
+msgstr "Comprueba que la API y su base de datos responden"
+
+#: core/health_schema.py:28
+msgid ""
+"Public and never rate limited, for load balancers and orchestrators. In "
+"staging and prod it also answers over plain HTTP, but the Host header must "
+"still be one of ALLOWED_HOSTS."
+msgstr "Público y sin límite de requests, para load balancers y orquestadores. En staging y prod también responde por HTTP, pero el header Host tiene que ser uno de ALLOWED_HOSTS."
+
+#: core/health_schema.py:33
+msgid "The API and the database answer."
+msgstr "La API y la base de datos responden."
+
+#: core/health_schema.py:34
+msgid "The database does not answer."
+msgstr "La base de datos no responde."
+
+#: core/settings.py:181
+msgid "English"
+msgstr "Inglés"
+
+#: core/settings.py:182
+msgid "Spanish"
+msgstr "Español"
+
+#: security/admin.py:51
+msgid "Personal info"
+msgstr "Información personal"
+
+#: security/admin.py:52
+msgid "Permissions"
+msgstr "Permisos"
+
+#: security/admin.py:53
+msgid "Important dates"
+msgstr "Fechas importantes"
+
+#: security/admin.py:69
+msgid "status"
+msgstr "estado"
+
+#: security/admin.py:74
+msgid "No status"
+msgstr "Sin estado"
+
+#: security/admin.py:142 security/models.py:112
+msgid "Payload"
+msgstr "Payload"
+
+#: security/admin.py:152
+msgid "Payload (formatted)"
+msgstr "Payload (con formato)"
+
+#: security/api_docs.py:60
+msgid "Register a user"
+msgstr "Registrar un usuario"
+
+#: security/api_docs.py:62
+msgid ""
+"Answers 201 with the same body whether the email is new or already "
+"registered."
+msgstr "Responde 201 con el mismo cuerpo, sea el email nuevo o ya registrado."
+
+#: security/api_docs.py:87
+msgid "Log in"
+msgstr "Iniciar sesión"
+
+#: security/api_docs.py:89
+msgid ""
+"Returns an access and a refresh token. Repeated failures lock the account "
+"for a while and answer 429 with the code account_locked_out."
+msgstr "Devuelve un token access y uno refresh. Los fallos repetidos bloquean la cuenta por un tiempo y responden 429 con el código account_locked_out."
+
+#: security/api_docs.py:105
+msgid "Get a new token pair"
+msgstr "Obtener un par de tokens nuevo"
+
+#: security/api_docs.py:106
+msgid "The refresh token sent stops working."
+msgstr "El refresh token enviado deja de funcionar."
+
+#: security/api_docs.py:117
+msgid "Log out"
+msgstr "Cerrar sesión"
+
+#: security/api_docs.py:118
+msgid "Blacklists the refresh token sent. Answers an empty object."
+msgstr "Pone en la blacklist el refresh token enviado. Responde un objeto vacío."
+
+#: security/api_docs.py:132
+msgid "Get your profile"
+msgstr "Obtener el perfil propio"
+
+#: security/api_docs.py:141
+msgid "Update your first and last name"
+msgstr "Actualizar el nombre y el apellido"
+
+#: security/api_docs.py:151
+msgid "Change your password"
+msgstr "Cambiar la contraseña"
+
+#: security/api_docs.py:153
+msgid "Every refresh token of the account stops working, this one included."
+msgstr "Todos los refresh tokens de la cuenta dejan de funcionar, incluido el de esta sesión."
+
+#: security/api_docs.py:172
+msgid "Email a password reset link"
+msgstr "Enviar por email un enlace para restablecer la contraseña"
+
+#: security/api_docs.py:174
+msgid "Answers the same whether the email belongs to an account or not."
+msgstr "Responde lo mismo, pertenezca o no el email a una cuenta."
+
+#: security/api_docs.py:187
+msgid "Set a new password with the link of the email"
+msgstr "Establecer una contraseña nueva con el enlace del email"
+
+#: security/api_docs.py:197
+msgid "Verify an email with the link of the email"
+msgstr "Verificar un email con el enlace del email"
+
+#: security/api_docs.py:207
+msgid "Email a new verification link"
+msgstr "Enviar por email un enlace de verificación nuevo"
+
+#: security/api_docs.py:208
+msgid "Answers the same whatever the state of the account."
+msgstr "Responde lo mismo, sea cual sea el estado de la cuenta."
+
+#: security/apps.py:7
+msgid "Security"
+msgstr "Seguridad"
+
+#: security/frontend_links.py:7
+msgid "Invalid or expired link."
+msgstr "El enlace no es válido o ya venció."
+
+#: security/login_lockout.py:12
+msgid "Too many failed login attempts."
+msgstr "Demasiados intentos fallidos de inicio de sesión."
+
+#: security/models.py:23
+msgid "The Email must be set"
+msgstr "Hay que indicar el email"
+
+#: security/models.py:36
+msgid "Superuser must have is_staff=True."
+msgstr "El superusuario tiene que tener is_staff=True."
+
+#: security/models.py:38
+msgid "Superuser must have is_superuser=True."
+msgstr "El superusuario tiene que tener is_superuser=True."
+
+#: security/models.py:46
+msgid "email address"
+msgstr "dirección de email"
+
+#: security/models.py:49
+msgid "email verified"
+msgstr "email verificado"
+
+#: security/models.py:106
+msgid "User"
+msgstr "Usuario"
+
+#: security/models.py:108
+msgid "IP Address"
+msgstr "Dirección IP"
+
+#: security/models.py:109
+msgid "User Agent"
+msgstr "User Agent"
+
+#: security/models.py:110
+msgid "HTTP Method"
+msgstr "Método HTTP"
+
+#: security/models.py:111
+msgid "URL Path"
+msgstr "Ruta de la URL"
+
+#: security/models.py:114
+msgid "Status code"
+msgstr "Código de estado"
+
+#: security/models.py:116
+msgid "Timestamp"
+msgstr "Fecha y hora"
+
+#: security/models.py:119
+msgid "Audit Log"
+msgstr "Registro de auditoría"
+
+#: security/models.py:120
+msgid "Audit Logs"
+msgstr "Registros de auditoría"
+
+#: security/password_validation.py:24
+msgid "uppercase letter (A-Z)"
+msgstr "una letra mayúscula (A-Z)"
+
+#: security/password_validation.py:27
+msgid "lowercase letter (a-z)"
+msgstr "una letra minúscula (a-z)"
+
+#: security/password_validation.py:29
+msgid "digit (0-9)"
+msgstr "un dígito (0-9)"
+
+#: security/password_validation.py:30
+msgid "symbol, such as ! ? # - _"
+msgstr "un símbolo, como ! ? # - _"
+
+#: security/password_validation.py:61
+#, python-brace-format
+msgid "Your password must contain at least one of each: {labels}."
+msgstr "La contraseña debe contener al menos: {labels}."
+
+#: security/password_validation.py:68
+#, python-format
+msgid "This password must contain at least one %(label)s."
+msgstr "La contraseña debe contener al menos: %(label)s."
+
+#: security/permissions.py:8
+msgid "Public registration is disabled."
+msgstr "El registro público está desactivado."
+
+#: security/serializers.py:42 security/serializers.py:83
+msgid "Password fields didn't match."
+msgstr "Las contraseñas no coinciden."
+
+#: security/serializers.py:97
+msgid "Your current password is incorrect."
+msgstr "La contraseña actual no es correcta."
+
+#: security/templates/security/emails/duplicate_registration/body.html:1
+#: security/templates/security/emails/duplicate_registration/body.txt:1
+msgid ""
+"Someone tried to create an account with this email, but it already has one. "
+"Nothing changed in your account."
+msgstr "Alguien intentó crear una cuenta con este email, pero ya tiene una. Su cuenta no cambió."
+
+#: security/templates/security/emails/duplicate_registration/body.html:2
+#: security/templates/security/emails/duplicate_registration/body.txt:3
+msgid ""
+"If it was you, log in as usual or reset your password if you forgot it. If "
+"it wasn't you, you can ignore this email."
+msgstr "Si fue usted, inicie sesión como siempre o restablezca la contraseña si la olvidó. Si no fue usted, puede ignorar este email."
+
+#: security/templates/security/emails/duplicate_registration/subject.txt:1
+msgid "Someone tried to register with your email"
+msgstr "Alguien intentó registrarse con su email"
+
+#: security/templates/security/emails/email_verification/body.html:1
+#: security/templates/security/emails/email_verification/body.txt:1
+msgid ""
+"To finish creating your account, confirm this is your email by opening this "
+"link:"
+msgstr "Para terminar de crear su cuenta, confirme que este es su email abriendo este enlace:"
+
+#: security/templates/security/emails/email_verification/body.html:3
+#: security/templates/security/emails/email_verification/body.txt:5
+#, python-format
+msgid ""
+"The link expires in %(hours)s hour. If it expires, ask for a new one from "
+"the app."
+msgid_plural ""
+"The link expires in %(hours)s hours. If it expires, ask for a new one from "
+"the app."
+msgstr[0] "El enlace vence en %(hours)s hora. Si vence, pida uno nuevo desde la app."
+msgstr[1] "El enlace vence en %(hours)s horas. Si vence, pida uno nuevo desde la app."
+msgstr[2] "El enlace vence en %(hours)s horas. Si vence, pida uno nuevo desde la app."
+
+#: security/templates/security/emails/email_verification/body.html:4
+#: security/templates/security/emails/email_verification/body.txt:10
+msgid "If you didn't create an account, ignore this email."
+msgstr "Si no creó una cuenta, ignore este email."
+
+#: security/templates/security/emails/email_verification/subject.txt:1
+msgid "Confirm your email"
+msgstr "Confirme su email"
+
+#: security/templates/security/emails/password_reset/body.html:1
+#: security/templates/security/emails/password_reset/body.txt:1
+msgid ""
+"Someone asked to reset the password of your account. To choose a new one, "
+"open this link:"
+msgstr "Alguien pidió restablecer la contraseña de su cuenta. Para elegir una nueva, abra este enlace:"
+
+#: security/templates/security/emails/password_reset/body.html:3
+#: security/templates/security/emails/password_reset/body.txt:5
+#, python-format
+msgid "The link works once and expires in %(minutes)s minute."
+msgid_plural "The link works once and expires in %(minutes)s minutes."
+msgstr[0] "El enlace funciona una sola vez y vence en %(minutes)s minuto."
+msgstr[1] "El enlace funciona una sola vez y vence en %(minutes)s minutos."
+msgstr[2] "El enlace funciona una sola vez y vence en %(minutes)s minutos."
+
+#: security/templates/security/emails/password_reset/body.html:4
+#: security/templates/security/emails/password_reset/body.txt:10
+msgid ""
+"If you didn't ask for it, ignore this email: your password stays the same."
+msgstr "Si no lo pidió, ignore este email: su contraseña no cambia."
+
+#: security/templates/security/emails/password_reset/subject.txt:1
+msgid "Reset your password"
+msgstr "Restablecer la contraseña"
+
+#: security/templates/security/lockout.html:4
+msgid "Account locked"
+msgstr "Cuenta bloqueada"
+
+#: security/templates/security/lockout.html:4
+msgid "Django site admin"
+msgstr "Sitio de administración de Django"
+
+#: security/templates/security/lockout.html:11
+#, python-format
+msgid "Too many failed login attempts. Try again in %(minutes)s minute."
+msgid_plural ""
+"Too many failed login attempts. Try again in %(minutes)s minutes."
+msgstr[0] "Demasiados intentos fallidos de inicio de sesión. Intente de nuevo en %(minutes)s minuto."
+msgstr[1] "Demasiados intentos fallidos de inicio de sesión. Intente de nuevo en %(minutes)s minutos."
+msgstr[2] "Demasiados intentos fallidos de inicio de sesión. Intente de nuevo en %(minutes)s minutos."
+
+#: security/templates/security/lockout.html:17
+msgid "An administrator can unlock the account before that."
+msgstr "Un administrador puede desbloquear la cuenta antes."
+
+#: security/views.py:144
+msgid "If the email belongs to an account, a reset link is on its way."
+msgstr "Si el email pertenece a una cuenta, le llegará un enlace para restablecer la contraseña."
+
+#: security/views.py:178
+msgid ""
+"If the email belongs to an account pending verification, a new link is on "
+"its way."
+msgstr "Si el email pertenece a una cuenta pendiente de verificación, le llegará un enlace nuevo."

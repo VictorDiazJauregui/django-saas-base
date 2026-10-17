@@ -123,7 +123,9 @@ class DjangoErrorPagesTests(CacheResetAPITestCase):
     def test_unhandled_error_in_the_api_returns_json(self):
         self.client.raise_request_exception = False
 
-        response = self.client.get("/api/v1/failing/")
+        # assertLogs also keeps the expected traceback out of the test output.
+        with self.assertLogs("django.request", "ERROR"):
+            response = self.client.get("/api/v1/failing/")
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(
@@ -138,7 +140,8 @@ class DjangoErrorPagesTests(CacheResetAPITestCase):
     def test_unhandled_error_outside_the_api_keeps_the_html_page(self):
         self.client.raise_request_exception = False
 
-        response = self.client.get("/failing/")
+        with self.assertLogs("django.request", "ERROR"):
+            response = self.client.get("/failing/")
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertTrue(response["Content-Type"].startswith("text/html"))

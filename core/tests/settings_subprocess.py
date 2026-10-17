@@ -53,6 +53,9 @@ PRODUCTION_ENVIRONMENT = {
     "DB_PASSWORD": "not-the-example-password",
     "DB_HOST": "localhost",
     "DB_PORT": "5432",
+    "DB_CONN_MAX_AGE": "60",
+    "LOG_LEVEL": "INFO",
+    "LOG_FORMAT": "text",
     "ADMIN_PASSWORD": "not-the-example-password",
 }
 

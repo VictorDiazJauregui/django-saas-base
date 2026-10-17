@@ -48,8 +48,15 @@ Run the same checks as CI, with the database up:
 uv run black --check .
 uv run ruff check .
 uv run python manage.py makemigrations --check --dry-run
-uv run python manage.py test
+uv run coverage run manage.py test
+uv run coverage report
+uvx pip-audit==2.10.1 -r requirements.txt --no-deps --disable-pip --strict
 ```
+
+The commands are the same in bash, zsh, PowerShell and cmd. With pip and a virtual environment,
+drop `uv run`. `coverage report` prints the lines the tests don't run and fails if the total
+drops below `fail_under` in `pyproject.toml`. Raise that value when the coverage goes up; never
+lower it to make the CI pass. `LOG_LEVEL=ERROR` in your `.env` keeps the test output short.
 
 If you changed a dependency, regenerate both requirements files and commit them together with
 `pyproject.toml` and `uv.lock`:
@@ -58,6 +65,12 @@ If you changed a dependency, regenerate both requirements files and commit them 
 uv export --no-dev --no-hashes -o requirements.txt
 uv export --no-hashes -o requirements-dev.txt
 ```
+
+### Dependabot pull requests
+
+Dependabot updates `pyproject.toml` and `uv.lock` every week, but not the requirements files,
+so the CI fails on its pull requests. Before merging one, check out its branch, run the two
+`uv export` commands above, commit both files and push: the CI runs again.
 
 ## Code style
 

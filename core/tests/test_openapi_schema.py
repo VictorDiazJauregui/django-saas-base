@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from drf_spectacular.generators import SchemaGenerator
 
 AUTH = "/api/v1/auth"
+HEALTH = "/api/v1/health/"
 EXPECTED_OPERATIONS = {
     ("post", f"{AUTH}/register/"),
     ("post", f"{AUTH}/login/"),
@@ -18,6 +19,7 @@ EXPECTED_OPERATIONS = {
     ("post", f"{AUTH}/password/reset/confirm/"),
     ("post", f"{AUTH}/verify-email/"),
     ("post", f"{AUTH}/verify-email/resend/"),
+    ("get", HEALTH),
 }
 NO_CONTENT_OPERATIONS = (
     f"{AUTH}/password/change/",
@@ -134,3 +136,9 @@ class OpenApiSchemaTests(SimpleTestCase):
                     self.assertNotIn(
                         "AuditMiddleware", operation.get("description", "")
                     )
+
+    def test_health_is_public_and_documents_both_answers(self):
+        operation = self.operation("get", HEALTH)
+
+        self.assertNotIn({"jwtAuth": []}, operation.get("security", [{}]))
+        self.assertEqual(set(operation["responses"]), {"200", "503"})

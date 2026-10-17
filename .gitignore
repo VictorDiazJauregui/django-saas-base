@@ -48,8 +48,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# Translations
-*.mo
+# Translations: the compiled .mo is versioned, so nobody needs gettext to see them
 *.pot
 
 # Django stuff:

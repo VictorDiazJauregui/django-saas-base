@@ -18,9 +18,11 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - [API](#api)
 - [Email](#email)
 - [Audit log](#audit-log)
+- [Logging](#logging)
 - [Dependencies](#dependencies)
 - [Tests and formatting](#tests-and-formatting)
 - [Troubleshooting](#troubleshooting)
+- [Upgrading the PostgreSQL minor version](#upgrading-the-postgresql-minor-version)
 - [Upgrading from PostgreSQL 15](#upgrading-from-postgresql-15)
 - [Renaming the project](#renaming-the-project)
 - [Internationalization](#internationalization)
@@ -41,7 +43,8 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **OpenAPI schema and Swagger UI** for the frontend, open while developing and staff only in production.
 - **Roles** declared in code and applied as Django groups with `sync_roles`.
 - **Admin panel** to manage users and browse the audit log.
-- **Internationalization** ready for English and Spanish.
+- **Production image:** a `Dockerfile` with gunicorn and whitenoise, a health endpoint, and logs as text or JSON. See [DEPLOYMENT.md](DEPLOYMENT.md).
+- **English and Spanish:** the API messages, the emails and the admin follow the `Accept-Language` of each request.
 - **Automated tests** for the API, the audit log and the admin.
 
 ---
@@ -368,12 +371,16 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `API_DOCS_ENABLED` | Django | Who sees `/api/schema/` and `/api/docs/`. Empty: anyone in `local` and `ci`, only staff in `staging` and `prod`. See [API documentation](#api-documentation) | *(empty)* |
 | `CORS_ALLOWED_ORIGINS` | Django | Origins allowed to call `/api/` from a browser, comma separated, with scheme and port. Empty: none. See [CORS](#cors) | *(empty)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
+| `APP_ENV_FILE` | Compose | File the `app` service reads its variables from, with `--profile app`. Empty: `.env`. See [DEPLOYMENT.md](DEPLOYMENT.md) | *(empty)* |
 | `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
 | `DB_NAME` | Both | Database name | `saas_db` |
 | `DB_USER` | Both | Database user | `saas_user` |
 | `DB_PASSWORD` | Both | Database password | *(your own)* |
 | `DB_HOST` | Django | Where the database is | `localhost` |
 | `DB_PORT` | Both | Database port on your machine | `5432` |
+| `LOG_LEVEL` | Django | Lowest level that reaches the console. See [Logging](#logging) | `INFO` |
+| `LOG_FORMAT` | Django | `text` or `json` | `text` |
+| `DB_CONN_MAX_AGE` | Django | Seconds a database connection is reused by the next requests of the same process. `0` opens one per request: use it behind PgBouncer in transaction mode. `runserver` opens a thread per request, so it never reuses them. A negative number or text stops Django from starting | `60` |
 | `ADMIN_EMAIL` | Django | Email of the superuser created by `create_admin_auto` | `admin@example.com` |
 | `ADMIN_PASSWORD` | Django | That superuser's password. It has to pass the password policy | *(your own)* |
 | `PASSWORD_MIN_LENGTH` | Django | Minimum password length | `8` |
@@ -419,6 +426,9 @@ Things to know before going live:
 - **`CSRF_TRUSTED_ORIGINS`** is only needed when the admin or another form is posted from a different origin than the one serving it. A match-all origin such as `https://*` is rejected in `staging` and `prod`.
 - **On every deploy, run `migrate` and then `sync_roles`**, so the groups match `core/roles.py`. See [Roles](#roles).
 - **The API docs are staff only** in `staging` and `prod`. See [API documentation](#api-documentation).
+- **Point the load balancer or the orchestrator at `/api/v1/health/`**. See [Health check](#health-check).
+
+How to build the image, what to run on each deploy and which tasks to schedule: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ### The superuser
 
@@ -478,6 +488,7 @@ With that, each one has its own container, data volume, network and ports, and t
 | `POST` | `/api/v1/auth/password/reset/confirm/` | Sets the new password with the `uid` and `token` of the link | `uid`, `token`, `new_password`, `new_password2` |
 | `POST` | `/api/v1/auth/verify-email/` | Verifies the email of an account with the `uid` and `token` of the link. See [Email verification](#email-verification) | `uid`, `token` |
 | `POST` | `/api/v1/auth/verify-email/resend/` | Emails a new verification link | `email` |
+| `GET` | `/api/v1/health/` | Answers whether the API and its database work. Public. See [Health check](#health-check) | — |
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
@@ -499,7 +510,7 @@ Who sees them depends on `API_DOCS_ENABLED`:
 - Staff users get in with the admin session (log in at `/admin/` and open `/api/docs/` in the same browser) or with a token.
 - Anyone else gets the same `404` as a route that doesn't exist.
 - `True` in `staging` or `prod` publishes the docs of your API. That's a choice for public APIs, not a default.
-- Swagger UI is served by the backend itself (`drf-spectacular-sidecar`), with no CDN. In `staging` and `prod` it needs the static files served, like the admin.
+- Swagger UI is served by the backend itself (`drf-spectacular-sidecar`), with no CDN. In `staging` and `prod` its files come from `collectstatic`, like the admin's: the image of the `Dockerfile` serves them with whitenoise.
 
 A frontend can generate its types and its client from the schema, for example with [openapi-typescript](https://openapi-ts.dev/):
 
@@ -537,6 +548,23 @@ The password policy applies to the API and the admin. By default a password need
 ```json
 {"code": "invalid", "detail": "Invalid input.", "fields": {"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}}
 ```
+
+### Health check
+
+`GET /api/v1/health/` tells a load balancer or an orchestrator whether the API works and reaches the database. It's public, it has no rate limit and the audit log doesn't store it.
+
+| Status | Body | When |
+|---|---|---|
+| `200` | `{"status": "ok", "database": "ok"}` | The API answers and the database runs a query |
+| `503` | `{"status": "error", "database": "error"}` | The database doesn't answer. The reason goes to the `core.health` logger |
+
+It answers with `Cache-Control: no-store` and shows no versions or hosts. In `staging` and `prod` it's the only route that also answers over plain HTTP, because probes reach the container without TLS. The `Host` header is still checked: the probe has to send one of `ALLOWED_HOSTS`, or Django answers `400`.
+
+| Probe | What to configure |
+|---|---|
+| The image's `HEALTHCHECK` | Nothing: it sends the first value of `ALLOWED_HOSTS` |
+| Kubernetes `httpGet` | `httpHeaders: [{name: Host, value: api.example.com}]` |
+| A load balancer that sends the container IP as `Host` (AWS ALB, for example) | Add that IP to `ALLOWED_HOSTS`, or point the check at a route of the proxy |
 
 ### Errors
 
@@ -995,6 +1023,38 @@ Register-ScheduledTask -TaskName "purge_audit_logs" -Action $action -Trigger (Ne
 
 ---
 
+## Logging
+
+Every log line goes to the console (`stderr`), where Docker, Kubernetes and most platforms collect it.
+
+| Variable | Values | Default |
+|---|---|---|
+| `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, in any case | `INFO` |
+| `LOG_FORMAT` | `text` to read in a terminal, `json` for a log collector such as Loki or Datadog | `text` |
+
+Any other value stops Django from starting. With `json`, each line is one object with `timestamp` (UTC), `level`, `logger`, `message` and the extra fields of the event:
+
+```json
+{"timestamp": "2026-10-17T14:05:12.345Z", "level": "WARNING", "logger": "security.security_events", "message": "Failed login for jane@example.com from 203.0.113.9.", "event": "login_failed", "email": "jane@example.com", "ip": "203.0.113.9", "path": "/api/v1/auth/login/"}
+```
+
+### Security events
+
+The `security` logger records these events. Filter them by the `event` field:
+
+| `event` | Level | When | Fields |
+|---|---|---|---|
+| `login_failed` | `WARNING` | A wrong email or password, in the API or in the admin | `email`, `ip`, `path` |
+| `account_locked_out` | `WARNING` | An account gets locked, and every attempt while it stays locked. See [Account lockout](#account-lockout) | `email`, `ip` |
+| `token_revoked` | `INFO` | A logout blacklists a refresh token | `user_id`, `reason` |
+| `tokens_revoked` | `INFO` | A password change or reset revokes every session | `user_id`, `count`, `reason` |
+
+The email is the one sent, lowercased. Passwords and tokens are never logged, not even masked.
+
+django-axes writes its own lines in the `axes` logger, as plain text even with `LOG_FORMAT=json`. Most are `INFO`: `LOG_LEVEL=WARNING` leaves them out. The test suite logs a lot at `INFO`: the CI runs it with `LOG_LEVEL=ERROR`, and you can do the same in your `.env`.
+
+---
+
 ## Dependencies
 
 `pyproject.toml` is the single source. `uv.lock` pins the exact version of every package for all platforms, and the `requirements` files are generated from it for `pip` users.
@@ -1009,6 +1069,8 @@ Register-ScheduledTask -TaskName "purge_audit_logs" -Action $action -Trigger (Ne
 
 **Do not edit the `requirements` files by hand.** After changing a dependency, regenerate both.
 
+The CI fails when a package of `requirements.txt` has a known vulnerability (`pip-audit`). Dependabot opens a pull request against `staging` every week with the new versions of the packages and of the GitHub Actions; it starts once `.github/dependabot.yml` reaches `main`. Its pull requests don't regenerate the `requirements` files: see [CONTRIBUTING.md](CONTRIBUTING.md#dependabot-pull-requests). Dependabot alerts and security updates are turned on in the repository settings, not in that file.
+
 More: [managing dependencies in uv](https://docs.astral.sh/uv/concepts/projects/dependencies/) · [exporting the lockfile](https://docs.astral.sh/uv/concepts/projects/export/).
 
 ---
@@ -1020,6 +1082,8 @@ The tests need the database running (step 3).
 | Task | With uv | With pip + venv |
 |---|---|---|
 | Run the tests | `uv run python manage.py test` | `python manage.py test` |
+| Run the tests and measure the coverage | `uv run coverage run manage.py test` | `coverage run manage.py test` |
+| Show the coverage, with the lines not run | `uv run coverage report` | `coverage report` |
 | Check formatting | `uv run black --check .` | `black --check .` |
 | Apply formatting | `uv run black .` | `black .` |
 | Lint | `uv run ruff check .` | `ruff check .` |
@@ -1072,6 +1136,22 @@ More help: [how to install Django on Windows](https://docs.djangoproject.com/en/
 
 ---
 
+## Upgrading the PostgreSQL minor version
+
+`docker-compose.yml` and the CI pin the same image, `postgres:18.6-alpine`, so every clone and every CI run use the same version. A minor version (18.6 to 18.7) keeps the data format: the volume stays as it is and there is nothing to dump.
+
+1. Change the tag in `docker-compose.yml` and in `.github/workflows/ci.yml`. A test fails if they differ.
+2. Pull the image and recreate the container:
+
+   ```bash
+   docker compose pull db
+   docker compose up -d --wait
+   ```
+
+The commands are the same in Linux, WSL, PowerShell and cmd. The available versions are listed under [Tags](https://hub.docker.com/_/postgres/tags?name=18.) of the official image. A new major version (19) does change the data format: see the next section.
+
+---
+
 ## Upgrading from PostgreSQL 15
 
 If you used an earlier version of this base, your volume holds PostgreSQL 15 data. A new major version **does not open the previous version's data**, and version 18 also stores the data in another path. The old volume is left untouched: it stays until you delete it.
@@ -1119,9 +1199,19 @@ Check the result with `python manage.py check` and `python manage.py test`.
 
 ## Internationalization
 
-The project is ready for English and Spanish.
+The API, the emails and the admin answer in English or Spanish. The language comes from the `Accept-Language` header of each request; without it, English. A validation error with `Accept-Language: es`:
 
-1. **Mark the strings** with `gettext_lazy`:
+```json
+{"code": "invalid", "detail": "Entrada inválida.", "fields": {"password": ["La contraseña debe contener al menos: un símbolo, como ! ? # - _."]}}
+```
+
+`code` and the field names don't change with the language: a frontend branches on them, and shows `detail` and the messages.
+
+The Spanish catalog is `locale/es/LC_MESSAGES/django.po`, and next to it the compiled `django.mo`. Both are committed, so the translations work without installing `gettext`. Django, Django REST Framework, SimpleJWT and django-axes bring their own catalogs.
+
+To add or change a text:
+
+1. **Mark it** with `gettext_lazy`:
 
    ```python
    from django.utils.translation import gettext_lazy as _
@@ -1130,14 +1220,14 @@ The project is ready for English and Spanish.
        name = models.CharField(_("name"), max_length=100)
    ```
 
-2. **Create the translations folder** the first time (`mkdir locale`) and **generate the files**:
+2. **Update the catalog.** English is the source language, so it needs no catalog:
 
    ```bash
-   python manage.py makemessages -l es -l en
+   python manage.py makemessages -l es --ignore ".venv*" --ignore staticfiles --ignore "*/tests/*"
    ```
 
-3. **Translate** in `locale/es/LC_MESSAGES/django.po` and `locale/en/LC_MESSAGES/django.po`.
-4. **Compile:**
+3. **Translate** the new entries of `django.po`, and remove the `#, fuzzy` mark from the ones `makemessages` guessed.
+4. **Compile** and commit the `.po` and the `.mo` together:
 
    ```bash
    python manage.py compilemessages --ignore ".venv*"
@@ -1145,7 +1235,7 @@ The project is ready for English and Spanish.
 
    Without `--ignore`, Django also walks the virtual environment and recompiles the thousands of catalogs of the installed libraries.
 
-`makemessages` and `compilemessages` need `gettext` installed on the system. On Windows, see [gettext on Windows](https://docs.djangoproject.com/en/5.2/topics/i18n/translation/#gettext-on-windows).
+A test fails if an entry has no translation, is still `fuzzy`, or the `.mo` doesn't match the `.po`. `makemessages` and `compilemessages` need `gettext` installed on the system. On Windows, see [gettext on Windows](https://docs.djangoproject.com/en/5.2/topics/i18n/translation/#gettext-on-windows).
 
 ---
 

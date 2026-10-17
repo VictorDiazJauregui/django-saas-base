@@ -30,6 +30,7 @@ from .email_verification import mark_email_verified, resend_verification
 from .password_change import set_new_password
 from .password_reset import complete_password_reset, request_password_reset
 from .permissions import PublicRegistrationEnabled
+from .security_events import log_token_revoked
 from .serializers import (
     EmailVerificationSerializer,
     LockoutAwareTokenObtainPairSerializer,
@@ -93,7 +94,10 @@ class LogoutView(TokenBlacklistView):
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         refresh_token = request.data.get("refresh")
-        request._request.user_for_audit = find_token_owner(RefreshToken, refresh_token)
+        owner = find_token_owner(RefreshToken, refresh_token)
+        request._request.user_for_audit = owner
+        if response.status_code == status.HTTP_200_OK:
+            log_token_revoked(owner, "logout")
         return response
 
 

@@ -38,6 +38,8 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **Account endpoints:** logout, the user's own profile in `/me/`, password change and reset by email, optional email verification, and every session closed when the password changes. Registration and reset don't reveal which emails have an account.
 - **Email** through any SMTP provider, configured with one URL; printed to the console while developing.
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
+- **OpenAPI schema and Swagger UI** for the frontend, open while developing and staff only in production.
+- **Roles** declared in code and applied as Django groups with `sync_roles`.
 - **Admin panel** to manage users and browse the audit log.
 - **Internationalization** ready for English and Spanish.
 - **Automated tests** for the API, the audit log and the admin.
@@ -220,6 +222,7 @@ With the default values:
 
 - Admin panel: <http://localhost:8000/admin/>
 - Authentication API: <http://localhost:8000/api/v1/auth/>
+- API documentation: <http://localhost:8000/api/docs/>
 
 To try the login from the terminal:
 
@@ -362,6 +365,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `EMAIL_VERIFICATION_TIMEOUT_HOURS` | Django | Hours a verification link works | `24` |
 | `API_PAGE_SIZE` | Django | Items per page of a list. See [Pagination](#pagination) | `20` |
 | `API_MAX_PAGE_SIZE` | Django | Largest `?page_size=` a client can ask for. `API_PAGE_SIZE` can't be larger | `100` |
+| `API_DOCS_ENABLED` | Django | Who sees `/api/schema/` and `/api/docs/`. Empty: anyone in `local` and `ci`, only staff in `staging` and `prod`. See [API documentation](#api-documentation) | *(empty)* |
 | `CORS_ALLOWED_ORIGINS` | Django | Origins allowed to call `/api/` from a browser, comma separated, with scheme and port. Empty: none. See [CORS](#cors) | *(empty)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
 | `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
@@ -413,6 +417,8 @@ Things to know before going live:
 - **Raise `SECURE_HSTS_SECONDS` to `31536000`** (one year) once every page works over HTTPS. Browsers keep the value: lowering it later only helps new visitors.
 - **`SECURE_HSTS_PRELOAD=True` is close to irreversible.** Browsers ship the preload list, and leaving it takes months. That's why it's off and its `check --deploy` warning is silenced while it stays off; the same applies to `SECURE_HSTS_INCLUDE_SUBDOMAINS`.
 - **`CSRF_TRUSTED_ORIGINS`** is only needed when the admin or another form is posted from a different origin than the one serving it. A match-all origin such as `https://*` is rejected in `staging` and `prod`.
+- **On every deploy, run `migrate` and then `sync_roles`**, so the groups match `core/roles.py`. See [Roles](#roles).
+- **The API docs are staff only** in `staging` and `prod`. See [API documentation](#api-documentation).
 
 ### The superuser
 
@@ -474,6 +480,50 @@ With that, each one has its own container, data volume, network and ports, and t
 | `POST` | `/api/v1/auth/verify-email/resend/` | Emails a new verification link | `email` |
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
+
+### API documentation
+
+| Route | What it serves |
+|---|---|
+| `GET /api/schema/` | OpenAPI 3 schema of the API, in YAML. `?format=json` returns JSON |
+| `GET /api/docs/` | Swagger UI: every endpoint with its body, its answers and examples, and an **Authorize** button to try them with a token |
+
+Who sees them depends on `API_DOCS_ENABLED`:
+
+| `API_DOCS_ENABLED` | Who sees the docs |
+|---|---|
+| Empty (default) | Anyone in `local` and `ci`; only staff in `staging` and `prod` |
+| `True` | Anyone, in every environment |
+| `False` | Only active staff users |
+
+- Staff users get in with the admin session (log in at `/admin/` and open `/api/docs/` in the same browser) or with a token.
+- Anyone else gets the same `404` as a route that doesn't exist.
+- `True` in `staging` or `prod` publishes the docs of your API. That's a choice for public APIs, not a default.
+- Swagger UI is served by the backend itself (`drf-spectacular-sidecar`), with no CDN. In `staging` and `prod` it needs the static files served, like the admin.
+
+A frontend can generate its types and its client from the schema, for example with [openapi-typescript](https://openapi-ts.dev/):
+
+```bash
+npx openapi-typescript http://localhost:8000/api/schema/ -o src/api/schema.d.ts
+```
+
+The schema comes from [drf-spectacular](https://drf-spectacular.readthedocs.io/). A view with a `serializer_class` gets documented on its own; what the code can't tell (a `204` without body, the errors) goes in `extend_schema`. Errors use the shape of [Errors](#errors), documented with `core.api_schema.error_responses`, which takes the error codes the view can answer:
+
+```python
+from drf_spectacular.utils import extend_schema
+
+from core.api_schema import RETRY_AFTER_HEADER, error_responses
+
+
+@extend_schema(
+    parameters=[RETRY_AFTER_HEADER],  # only if the view has a rate limit
+    responses={204: None, **error_responses("invalid", "not_authenticated", "throttled")},
+)
+class ArchiveInvoiceView(GenericAPIView):
+    ...
+```
+
+The CI runs `python manage.py spectacular --validate --fail-on-warn` and fails if the schema has a warning, for example a view that drf-spectacular can't describe.
 
 The API answers JSON. Only with `DEBUG=True` does a route opened in the browser show DRF's browsable API; in `staging` and `prod` the browser gets JSON too.
 
@@ -780,11 +830,37 @@ class ReportView(ListAPIView):
 ```
 
 - `HasPermission("app_label.codename")` passes if the user has that permission, directly or through one of their groups (`user.has_perm`). A name without the app label stops Django when the view is imported.
-- `HasRole("name")` passes if the user belongs to the Django `Group` with that name. Groups are created in the admin, under "Authentication and Authorization" → "Groups".
+- `HasRole("name")` passes if the user belongs to the Django `Group` with that name. Groups are created in the admin, under "Authentication and Authorization" → "Groups", or from the code with [Roles](#roles).
 - An active superuser passes both, so `~HasRole(...)` leaves superusers out.
 - Without a token they answer `401`; with a token and without the permission or role, `403` with `code` `permission_denied`.
 - They combine with `&`, `|` and `~`, between themselves and with DRF's classes.
 - A permission or role that doesn't exist is never met, except by a superuser. Django creates four permissions per model, named `<app_label>.<add|change|delete|view>_<model>` (`security.view_auditlog`).
+
+#### Roles
+
+Roles live in the code, so every environment gets the same groups. Declare them in `core/roles.py`, each with its list of permissions:
+
+```python
+ROLES = {
+    "auditors": ["security.view_auditlog"],
+    "support": ["security.view_user", "security.change_user"],
+}
+```
+
+Then create or update their groups:
+
+```bash
+python manage.py sync_roles --dry-run   # shows what would change
+python manage.py sync_roles
+```
+
+- Each role becomes a Django `Group` with that name, the one `HasRole("auditors")` checks.
+- It adds the permissions a group lacks and removes the ones no longer declared. Running it again changes nothing.
+- A permission that doesn't exist is reported as a warning and the rest is applied. Permissions are created by `migrate`, so run `sync_roles` after it.
+- A permission without the app label (`view_auditlog`) stops the command before it changes anything.
+- Groups in the database that aren't declared are listed and left as they are.
+- Changes made in the admin to a declared role are undone by the next run: edit `core/roles.py` instead.
+- The base declares no roles. To keep them elsewhere, point `ROLE_DEFINITIONS` in `core/settings.py` at your own dict.
 
 ### CORS
 

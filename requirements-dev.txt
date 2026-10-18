@@ -54,7 +54,7 @@ inflection==0.5.1
 ipython==9.17.1
 ipython-pygments-lexers==1.1.1
     # via ipython
-jedi==0.20.0
+jedi==0.20.1
     # via ipython
 jsonschema==4.26.0
     # via drf-spectacular

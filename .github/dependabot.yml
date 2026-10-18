@@ -1,6 +1,8 @@
 # GitHub reads this file from the default branch (main): it takes effect after a release.
-# Version updates go to staging, like any other change. Dependabot updates pyproject.toml
-# and uv.lock but not the requirements files: see CONTRIBUTING.md before merging.
+# Version updates go to staging, like any other change.
+# Only packages declared in pyproject.toml get updates. Dependabot reads the requirements files as
+# manifests and bumps their transitive pins without touching uv.lock, so they are excluded: the
+# requirements files are regenerated with uv export (see CONTRIBUTING.md before merging).
 version: 2
 updates:
   - package-ecosystem: "uv"
@@ -8,6 +10,18 @@ updates:
     schedule:
       interval: "weekly"
     target-branch: "staging"
+    exclude-paths:
+      - "requirements.txt"
+      - "requirements-dev.txt"
+    allow:
+      - dependency-type: "direct"
+    groups:
+      python-packages:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       prefix: "CHORE"
   - package-ecosystem: "github-actions"

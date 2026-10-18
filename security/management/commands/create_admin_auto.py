@@ -1,33 +1,41 @@
-import os
-from django.core.management.base import BaseCommand
-from django.contrib.auth import get_user_model
+import environ
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management.base import BaseCommand
+
+from security.superuser_bootstrap import ensure_superuser, rotate_superuser_password
+
+env = environ.Env()
+
+
+def read_required_variable(name):
+    value = env.str(name, default="")
+    if not value:
+        raise ImproperlyConfigured(
+            "ADMIN_EMAIL and ADMIN_PASSWORD must be set in the environment."
+        )
+    return value
 
 
 class Command(BaseCommand):
-    """
-    Custom management command to create a superuser automatically from environment variables.
-    """
+    help = (
+        "Creates the superuser in ADMIN_EMAIL with ADMIN_PASSWORD, for automated deployments. "
+        "Use createsuperuser to create one interactively."
+    )
 
-    help = "Creates a superuser automatically from ADMIN_EMAIL and ADMIN_PASSWORD environment variables."
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--update-password",
+            action="store_true",
+            help="Also set ADMIN_PASSWORD on the superuser if it already exists.",
+        )
 
     def handle(self, *args, **options):
-        User = get_user_model()
-        email = os.environ.get("ADMIN_EMAIL")
-        password = os.environ.get("ADMIN_PASSWORD")
-
-        if not email or not password:
-            raise ImproperlyConfigured(
-                "ADMIN_EMAIL and ADMIN_PASSWORD must be set in the environment."
-            )
-
-        if User.objects.filter(email=email).exists():
-            self.stdout.write(
-                self.style.SUCCESS(f'Superuser "{email}" already exists.')
-            )
-        else:
-            self.stdout.write(f'Creating superuser "{email}"...')
-            User.objects.create_superuser(email=email, password=password)
-            self.stdout.write(
-                self.style.SUCCESS(f'Superuser "{email}" created successfully.')
-            )
+        email = read_required_variable("ADMIN_EMAIL")
+        password = read_required_variable("ADMIN_PASSWORD")
+        bootstrap = (
+            rotate_superuser_password
+            if options["update_password"]
+            else ensure_superuser
+        )
+        outcome = bootstrap(email, password)
+        self.stdout.write(self.style.SUCCESS(f'Superuser "{email}": {outcome}.'))

@@ -70,7 +70,7 @@ uv run python manage.py runserver
 | `docker compose up -d --wait` | Levanta PostgreSQL y espera a que acepte conexiones |
 | `uv sync` | Crea `.venv` e instala las versiones exactas de `uv.lock` |
 | `migrate` | Crea o actualiza las tablas |
-| `create_admin_auto` | Crea el superusuario de prueba; si ya existe, no lo duplica |
+| `create_admin_auto` | Crea el superusuario de prueba; si ya existe, no lo duplica. `ADMIN_PASSWORD` tiene que cumplir la política de contraseñas: si no la cumple, el comando dice qué regla falla |
 | `runserver` | Inicia el servidor en el puerto de `APP_PORT` |
 
 `runserver` ocupa la terminal. Para detenerlo: `Ctrl + C`.
@@ -91,7 +91,7 @@ uv run python manage.py runserver
 grep '^ADMIN_PASSWORD=' .env | cut -d= -f2-
 ```
 
-Si el usuario no existe, se crea con `uv run python manage.py create_admin_auto`.
+Si el usuario no existe, se crea con `uv run python manage.py create_admin_auto`. Después de cambiar `ADMIN_PASSWORD`, se aplica con `uv run python manage.py create_admin_auto --update-password`.
 
 ---
 
@@ -152,6 +152,7 @@ Necesitan la base levantada: Django crea y elimina una base temporal para correr
 ```bash
 uv run python manage.py test
 uv run black --check .
+uv run ruff check .
 ```
 
 ---

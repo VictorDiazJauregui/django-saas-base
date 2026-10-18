@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18.6-alpine
         env:
           POSTGRES_DB: ci_db
           POSTGRES_USER: ci_user
@@ -36,6 +36,9 @@ jobs:
       DB_PASSWORD: ci_password
       DB_HOST: localhost
       DB_PORT: "5432"
+      FRONTEND_PASSWORD_RESET_URL: "http://localhost:3000/reset-password?uid={uid}&token={token}"
+      # Keeps the test output readable; assertLogs sets its own level, so no test depends on it.
+      LOG_LEVEL: ERROR
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -54,16 +57,45 @@ jobs:
         run: |
           uv export --no-dev --no-hashes --quiet -o requirements.txt
           uv export --no-hashes --quiet -o requirements-dev.txt
-          git diff --exit-code -- requirements.txt requirements-dev.txt
+          git diff --exit-code -- requirements.txt requirements-dev.txt || {
+            echo "::error::requirements.txt or requirements-dev.txt don't match uv.lock. Run 'uv export --no-dev --no-hashes -o requirements.txt' and 'uv export --no-hashes -o requirements-dev.txt', then commit both."
+            exit 1
+          }
 
       - name: Install dependencies
         run: uv sync --locked
 
+      # Fails on any dependency with a known vulnerability. The file pins every package, so
+      # nothing needs resolving; pip-audit stays out of the lockfile every clone inherits.
+      - name: Audit dependencies
+        run: uvx pip-audit==2.10.1 -r requirements.txt --no-deps --disable-pip --strict
+
       - name: Format
         run: uv run black --check .
+
+      - name: Lint
+        run: uv run ruff check .
 
       - name: Missing migrations
         run: uv run python manage.py makemigrations --check --dry-run
 
-      - name: Tests
-        run: uv run python manage.py test
+      - name: Tests with coverage
+        run: uv run coverage run manage.py test
+
+      # Fails when the total drops below fail_under in pyproject.toml.
+      - name: Coverage report
+        run: uv run coverage report
+
+      # Fails on any warning, so a view the schema can't describe shows up in the PR.
+      - name: OpenAPI schema
+        run: uv run python manage.py spectacular --validate --fail-on-warn --file "$RUNNER_TEMP/openapi-schema.yml"
+
+      # Same settings a real deployment gets: fails on any security warning.
+      - name: Deploy checks with production settings
+        env:
+          ENVIRONMENT: prod
+          ALLOWED_HOSTS: api.example.com
+          SECRET_KEY: ci-only-production-like-secret-key-0123456789-abcdefghij
+          # Any SMTP URL: check doesn't connect, and without one core.W004 fails the step.
+          EMAIL_URL: smtp+tls://smtp.example.com:587
+        run: uv run python manage.py check --deploy --fail-level WARNING

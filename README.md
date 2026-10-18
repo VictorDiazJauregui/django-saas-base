@@ -13,11 +13,16 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - [Getting started](#getting-started)
 - [Setup by operating system](#setup-by-operating-system)
 - [Environment variables](#environment-variables)
+- [Production](#production)
 - [Several projects on the same machine](#several-projects-on-the-same-machine)
 - [API](#api)
+- [Email](#email)
+- [Audit log](#audit-log)
+- [Logging](#logging)
 - [Dependencies](#dependencies)
 - [Tests and formatting](#tests-and-formatting)
 - [Troubleshooting](#troubleshooting)
+- [Upgrading the PostgreSQL minor version](#upgrading-the-postgresql-minor-version)
 - [Upgrading from PostgreSQL 15](#upgrading-from-postgresql-15)
 - [Renaming the project](#renaming-the-project)
 - [Internationalization](#internationalization)
@@ -28,12 +33,18 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 
 ## What it includes
 
-- **Django 5.2 LTS** and **Django REST Framework**, with **JWT** authentication.
+- **Django 5.2 LTS** and **Django REST Framework**, with **JWT** authentication and refresh tokens that rotate on every use.
+- **Login protection:** request limits per IP and an account lockout after repeated failed logins, in the API and the admin.
 - **PostgreSQL 18** in Docker Compose, configured through variables.
-- **Custom user** that logs in with an email.
+- **Custom user** that logs in with an email and has a random UUID as primary key.
+- **Account endpoints:** logout, the user's own profile in `/me/`, password change and reset by email, optional email verification, and every session closed when the password changes. Registration and reset don't reveal which emails have an account.
+- **Email** through any SMTP provider, configured with one URL; printed to the console while developing.
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
+- **OpenAPI schema and Swagger UI** for the frontend, open while developing and staff only in production.
+- **Roles** declared in code and applied as Django groups with `sync_roles`.
 - **Admin panel** to manage users and browse the audit log.
-- **Internationalization** ready for English and Spanish.
+- **Production image:** a `Dockerfile` with gunicorn and whitenoise, a health endpoint, and logs as text or JSON. See [DEPLOYMENT.md](DEPLOYMENT.md).
+- **English and Spanish:** the API messages, the emails and the admin follow the `Accept-Language` of each request.
 - **Automated tests** for the API, the audit log and the admin.
 
 ---
@@ -93,7 +104,7 @@ Open `.env` in your editor and change at least:
 | `COMPOSE_PROJECT_NAME` | A unique, lowercase name for this project (for example `shop`) |
 | `DB_CONTAINER_NAME` | A unique name for the container (for example `shop_db`) |
 | `DB_NAME`, `DB_USER` | The database name and its user |
-| `DB_PASSWORD`, `ADMIN_PASSWORD` | Your own passwords |
+| `DB_PASSWORD`, `ADMIN_PASSWORD` | Your own passwords. `ADMIN_PASSWORD` has to pass the [password policy](#api) |
 | `SECRET_KEY` | A generated key (see below) |
 | `DB_PORT`, `APP_PORT` | Keep `5432` and `8000` unless they are already taken |
 
@@ -104,6 +115,8 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
 > On Windows, if `python` is not recognized, use `py` instead. With `uv`, prefix it with `uv run`.
+
+> The generated value doesn't always include a symbol, which the password policy asks for. If `create_admin_auto` rejects `ADMIN_PASSWORD`, it says which rule failed: add a `-` or a `_` and run it again.
 
 > **Avoid `$` and `#` in the values.** Docker Compose reads `$` as a reference to another variable and a `#` after a space as a comment, and cuts the value there; Django reads the whole value. The two end up with different values. The command above only produces safe characters.
 
@@ -203,7 +216,7 @@ python manage.py runserver
 ```
 
 - `migrate` creates the tables.
-- `create_admin_auto` creates the superuser from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Running it again does not duplicate it.
+- `create_admin_auto` creates the superuser from `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Running it again does not duplicate it. See [The superuser](#the-superuser).
 - `runserver` uses the port in `APP_PORT`. For a one-off port, pass it: `runserver 9000`.
 
 ### 6. Check it works
@@ -212,6 +225,7 @@ With the default values:
 
 - Admin panel: <http://localhost:8000/admin/>
 - Authentication API: <http://localhost:8000/api/v1/auth/>
+- API documentation: <http://localhost:8000/api/docs/>
 
 To try the login from the terminal:
 
@@ -318,25 +332,127 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 
 | Variable | Read by | Used for | Example value |
 |---|---|---|---|
-| `ENVIRONMENT` | Django | Environment name. `prod` forces `DEBUG` off | `local` |
+| `ENVIRONMENT` | Django | `local`, `ci`, `staging` or `prod`. Any other value stops Django from starting. See [Production](#production) | `local` |
 | `SECRET_KEY` | Django | The project's cryptographic key | *(generated)* |
-| `DEBUG` | Django | Debug mode | `True` |
-| `ALLOWED_HOSTS` | Django | Allowed domains, comma separated | `'*'` |
+| `DEBUG` | Django | Debug mode. Only allowed in `local` and `ci` | `True` |
+| `ALLOWED_HOSTS` | Django | Domains that serve the project, comma separated, without scheme or port. Required in `staging` and `prod`, where `*` is rejected | `localhost,127.0.0.1` |
 | `APP_PORT` | Django | Development server port | `8000` |
+| `SECURE_HSTS_SECONDS` | Django | How long browsers remember to use HTTPS only (`staging` and `prod`) | `3600` |
+| `SECURE_HSTS_INCLUDE_SUBDOMAINS` | Django | Extends HSTS to every subdomain | `False` |
+| `SECURE_HSTS_PRELOAD` | Django | Allows submitting the domain to the browsers' HSTS preload list | `False` |
+| `USE_X_FORWARDED_PROTO` | Django | Trusts the `X-Forwarded-Proto` header of the proxy that terminates TLS | `False` |
+| `CSRF_TRUSTED_ORIGINS` | Django | Extra origins allowed to send forms, comma separated, with scheme | *(empty)* |
+| `THROTTLE_ANON_RATE` | Django | Limit for anonymous requests to any endpoint. Empty: no limit | *(empty)* |
+| `THROTTLE_USER_RATE` | Django | Limit for authenticated requests to any endpoint. Empty: no limit | *(empty)* |
+| `THROTTLE_LOGIN_RATE` | Django | Limit for `POST /api/v1/auth/login/` | `10/10m` |
+| `THROTTLE_REGISTER_RATE` | Django | Limit for `POST /api/v1/auth/register/` | `5/h` |
+| `THROTTLE_VERIFY_EMAIL_RATE` | Django | Limit for `verify-email/` and `verify-email/resend/` | `5/h` |
+| `THROTTLE_PASSWORD_RATE` | Django | Limit for the password change and the password reset, and for the endpoints you add with `throttle_scope = "password"` | `5/h` |
+| `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header. Used by the rate limits and the audit log. A negative number stops Django from starting | `0` |
+| `CACHE_URL` | Django | Cache where the limits are counted | `locmemcache://` |
+| `AUDIT_EXTRA_SENSITIVE_KEYS` | Django | Extra keys the audit log redacts, comma separated. See [Audit log](#audit-log) | *(empty)* |
+| `AUDIT_PAYLOAD_MAX_BYTES` | Django | Largest body the audit log stores, in bytes. A larger one is stored as a marker with its size. `0` means no limit. A negative number or text stops Django from starting | `65536` |
+| `JWT_ACCESS_MINUTES` | Django | Lifetime of the `access` token, in minutes. See [Tokens](#tokens) | `5` |
+| `JWT_REFRESH_DAYS` | Django | Lifetime of the `refresh` token, in days | `1` |
+| `JWT_SIGNING_KEY` | Django | Key that signs the tokens. Empty: `SECRET_KEY` | *(empty)* |
+| `AXES_FAILURE_LIMIT` | Django | Failed logins that lock an account. See [Account lockout](#account-lockout) | `5` |
+| `AXES_COOLOFF_MINUTES` | Django | Minutes the lockout lasts | `15` |
+| `AXES_LOCKOUT_PARAMETERS` | Django | What is locked: `username`, `ip_address`, `user_agent`, joined with `+` | `username+ip_address` |
+| `EMAIL_URL` | Django | Where emails go, as a URL. Empty: printed to the console. See [Email](#email) | *(empty)* |
+| `DEFAULT_FROM_EMAIL` | Django | Sender of the emails the project sends | `webmaster@localhost` |
+| `ALLOW_PUBLIC_REGISTRATION` | Django | `False` closes `POST /api/v1/auth/register/` with `403`. See [Public registration](#public-registration) | `True` |
+| `FRONTEND_PASSWORD_RESET_URL` | Django | Frontend page the reset email links to, with `{uid}` and `{token}`. Required: without it, or without a marker, Django doesn't start. See [Password reset](#password-reset) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
+| `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutes a reset link works | `60` |
+| `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: a public registration logs in only after following the link of its email. See [Email verification](#email-verification) | `False` |
+| `FRONTEND_EMAIL_VERIFICATION_URL` | Django | Frontend page the verification email links to, with `{uid}` and `{token}`. Required only with `REQUIRE_EMAIL_VERIFICATION=True` | `'http://localhost:3000/verify-email?uid={uid}&token={token}'` |
+| `EMAIL_VERIFICATION_TIMEOUT_HOURS` | Django | Hours a verification link works | `24` |
+| `API_PAGE_SIZE` | Django | Items per page of a list. See [Pagination](#pagination) | `20` |
+| `API_MAX_PAGE_SIZE` | Django | Largest `?page_size=` a client can ask for. `API_PAGE_SIZE` can't be larger | `100` |
+| `API_DOCS_ENABLED` | Django | Who sees `/api/schema/` and `/api/docs/`. Empty: anyone in `local` and `ci`, only staff in `staging` and `prod`. See [API documentation](#api-documentation) | *(empty)* |
+| `CORS_ALLOWED_ORIGINS` | Django | Origins allowed to call `/api/` from a browser, comma separated, with scheme and port. Empty: none. See [CORS](#cors) | *(empty)* |
 | `COMPOSE_PROJECT_NAME` | Compose | Project name. The volume and the network are named after it | `saas` |
+| `APP_ENV_FILE` | Compose | File the `app` service reads its variables from, with `--profile app`. Empty: `.env`. See [DEPLOYMENT.md](DEPLOYMENT.md) | *(empty)* |
 | `DB_CONTAINER_NAME` | Compose | PostgreSQL container name | `saas_db` |
 | `DB_NAME` | Both | Database name | `saas_db` |
 | `DB_USER` | Both | Database user | `saas_user` |
 | `DB_PASSWORD` | Both | Database password | *(your own)* |
 | `DB_HOST` | Django | Where the database is | `localhost` |
 | `DB_PORT` | Both | Database port on your machine | `5432` |
+| `LOG_LEVEL` | Django | Lowest level that reaches the console. See [Logging](#logging) | `INFO` |
+| `LOG_FORMAT` | Django | `text` or `json` | `text` |
+| `DB_CONN_MAX_AGE` | Django | Seconds a database connection is reused by the next requests of the same process. `0` opens one per request: use it behind PgBouncer in transaction mode. `runserver` opens a thread per request, so it never reuses them. A negative number or text stops Django from starting | `60` |
 | `ADMIN_EMAIL` | Django | Email of the superuser created by `create_admin_auto` | `admin@example.com` |
-| `ADMIN_PASSWORD` | Django | That superuser's password | *(your own)* |
+| `ADMIN_PASSWORD` | Django | That superuser's password. It has to pass the password policy | *(your own)* |
+| `PASSWORD_MIN_LENGTH` | Django | Minimum password length | `8` |
+| `PASSWORD_REQUIRE_UPPERCASE` | Django | Passwords need an uppercase letter (`A-Z`) | `True` |
+| `PASSWORD_REQUIRE_LOWERCASE` | Django | Passwords need a lowercase letter (`a-z`) | `True` |
+| `PASSWORD_REQUIRE_DIGIT` | Django | Passwords need a digit (`0-9`) | `True` |
+| `PASSWORD_REQUIRE_SYMBOL` | Django | Passwords need a symbol (ASCII punctuation, such as `!`, `#`, `-`, `_`) | `True` |
 
 Two details worth knowing:
 
 - **PostgreSQL only applies `DB_NAME`, `DB_USER` and `DB_PASSWORD` the first time**, when it creates the volume. If you change them later, the existing database does not pick them up: see [Troubleshooting](#troubleshooting).
 - **The database port is published on `127.0.0.1` only**: reachable from your machine, not from other machines on the network.
+
+---
+
+## Production
+
+`ENVIRONMENT` decides how strict the settings are. Django refuses to start when a value doesn't fit the environment, so a mistake shows up at deploy time and not in production traffic.
+
+| | `local`, `ci` | `staging`, `prod` |
+|---|---|---|
+| `DEBUG=True` | Allowed | Django doesn't start |
+| `ALLOWED_HOSTS` | Optional; defaults to `*` with `DEBUG` and `localhost` without it | Required, without `*` |
+| HTTP requests | Served | Redirected to HTTPS |
+| Session and CSRF cookies | Sent over HTTP | `Secure`: HTTPS only |
+| HSTS | Off | `SECURE_HSTS_SECONDS`, `3600` by default |
+
+Django also checks the values copied from `.env.example`. If `SECRET_KEY`, `DB_PASSWORD` or `ADMIN_PASSWORD` still have the example value, `runserver`, `migrate` and `check` report it: a warning in `local` and `ci` (`core.W001` to `core.W003`) and an error that stops the command in `staging` and `prod` (`core.E001` to `core.E003`). A short `SECRET_KEY` is reported by Django itself (`security.W009`). In `staging` and `prod`, an `EMAIL_URL` that doesn't deliver emails (empty, console, file or memory) gets the warning `core.W004`: the password reset would print its links to the log and nobody would get them.
+
+Before deploying, run the same check the CI runs, with your production `.env` loaded:
+
+```bash
+python manage.py check --deploy --fail-level WARNING
+```
+
+It ends with `System check identified no issues (2 silenced)`. The two silenced warnings are the HSTS ones explained below.
+
+Things to know before going live:
+
+- **Behind a proxy or load balancer that terminates TLS**, set `USE_X_FORWARDED_PROTO=True` and make sure the proxy overwrites `X-Forwarded-Proto`. Without it Django sees plain HTTP and redirects forever.
+- **Raise `SECURE_HSTS_SECONDS` to `31536000`** (one year) once every page works over HTTPS. Browsers keep the value: lowering it later only helps new visitors.
+- **`SECURE_HSTS_PRELOAD=True` is close to irreversible.** Browsers ship the preload list, and leaving it takes months. That's why it's off and its `check --deploy` warning is silenced while it stays off; the same applies to `SECURE_HSTS_INCLUDE_SUBDOMAINS`.
+- **`CSRF_TRUSTED_ORIGINS`** is only needed when the admin or another form is posted from a different origin than the one serving it. A match-all origin such as `https://*` is rejected in `staging` and `prod`.
+- **On every deploy, run `migrate` and then `sync_roles`**, so the groups match `core/roles.py`. See [Roles](#roles).
+- **The API docs are staff only** in `staging` and `prod`. See [API documentation](#api-documentation).
+- **Point the load balancer or the orchestrator at `/api/v1/health/`**. See [Health check](#health-check).
+
+How to build the image, what to run on each deploy and which tasks to schedule: [DEPLOYMENT.md](DEPLOYMENT.md).
+
+### The superuser
+
+`create_admin_auto` is meant for automated deployments: it reads `ADMIN_EMAIL` and `ADMIN_PASSWORD` and never asks anything. To create a superuser by hand, use Django's own command, which also asks for the email:
+
+```bash
+python manage.py createsuperuser
+```
+
+What `create_admin_auto` does depends on the email:
+
+| `ADMIN_EMAIL` | Result | Exit code |
+|---|---|---|
+| Doesn't exist | Creates the superuser, if `ADMIN_PASSWORD` passes the password policy | `0`, or `1` with the rules it breaks |
+| Belongs to a superuser | Nothing: the password is not checked or changed | `0` |
+| Belongs to a regular user | Nothing: it doesn't promote users. Promote it from the admin or use another email | `1` |
+
+The email is matched in any case. With `--update-password`, an existing superuser also gets `ADMIN_PASSWORD`, and a missing one is created, so a deployment can always run:
+
+```bash
+python manage.py create_admin_auto --update-password
+```
+
+The password never appears in the output, not even when it's rejected.
 
 ---
 
@@ -363,11 +479,583 @@ With that, each one has its own container, data volume, network and ports, and t
 |---|---|---|---|
 | `POST` | `/api/v1/auth/register/` | Registers a user | `email`, `password`, `password2`, `first_name`, `last_name` |
 | `POST` | `/api/v1/auth/login/` | Returns the `access` and `refresh` tokens | `email`, `password` |
-| `POST` | `/api/v1/auth/login/refresh/` | Returns a new `access` token | `refresh` |
+| `POST` | `/api/v1/auth/login/refresh/` | Returns a new `access` and a new `refresh`; the `refresh` sent stops working. See [Tokens](#tokens) | `refresh` |
+| `POST` | `/api/v1/auth/logout/` | Blacklists the `refresh` sent. See [Logout](#logout) | `refresh` |
+| `GET` | `/api/v1/auth/me/` | Returns the profile of the authenticated user. See [Profile](#profile) | — |
+| `PATCH` | `/api/v1/auth/me/` | Updates `first_name` and `last_name` | `first_name`, `last_name` (both optional) |
+| `POST` | `/api/v1/auth/password/change/` | Changes the password of the authenticated user. See [Change password](#change-password) | `current_password`, `new_password`, `new_password2` |
+| `POST` | `/api/v1/auth/password/reset/` | Emails a link to choose a new password. See [Password reset](#password-reset) | `email` |
+| `POST` | `/api/v1/auth/password/reset/confirm/` | Sets the new password with the `uid` and `token` of the link | `uid`, `token`, `new_password`, `new_password2` |
+| `POST` | `/api/v1/auth/verify-email/` | Verifies the email of an account with the `uid` and `token` of the link. See [Email verification](#email-verification) | `uid`, `token` |
+| `POST` | `/api/v1/auth/verify-email/resend/` | Emails a new verification link | `email` |
+| `GET` | `/api/v1/health/` | Answers whether the API and its database work. Public. See [Health check](#health-check) | — |
 
 Routes you add require authentication by default: send the token in the `Authorization: Bearer <access>` header.
 
+### API documentation
+
+| Route | What it serves |
+|---|---|
+| `GET /api/schema/` | OpenAPI 3 schema of the API, in YAML. `?format=json` returns JSON |
+| `GET /api/docs/` | Swagger UI: every endpoint with its body, its answers and examples, and an **Authorize** button to try them with a token |
+
+Who sees them depends on `API_DOCS_ENABLED`:
+
+| `API_DOCS_ENABLED` | Who sees the docs |
+|---|---|
+| Empty (default) | Anyone in `local` and `ci`; only staff in `staging` and `prod` |
+| `True` | Anyone, in every environment |
+| `False` | Only active staff users |
+
+- Staff users get in with the admin session (log in at `/admin/` and open `/api/docs/` in the same browser) or with a token.
+- Anyone else gets the same `404` as a route that doesn't exist.
+- `True` in `staging` or `prod` publishes the docs of your API. That's a choice for public APIs, not a default.
+- Swagger UI is served by the backend itself (`drf-spectacular-sidecar`), with no CDN. In `staging` and `prod` its files come from `collectstatic`, like the admin's: the image of the `Dockerfile` serves them with whitenoise.
+
+A frontend can generate its types and its client from the schema, for example with [openapi-typescript](https://openapi-ts.dev/):
+
+```bash
+npx openapi-typescript http://localhost:8000/api/schema/ -o src/api/schema.d.ts
+```
+
+The schema comes from [drf-spectacular](https://drf-spectacular.readthedocs.io/). A view with a `serializer_class` gets documented on its own; what the code can't tell (a `204` without body, the errors) goes in `extend_schema`. Errors use the shape of [Errors](#errors), documented with `core.api_schema.error_responses`, which takes the error codes the view can answer:
+
+```python
+from drf_spectacular.utils import extend_schema
+
+from core.api_schema import RETRY_AFTER_HEADER, error_responses
+
+
+@extend_schema(
+    parameters=[RETRY_AFTER_HEADER],  # only if the view has a rate limit
+    responses={204: None, **error_responses("invalid", "not_authenticated", "throttled")},
+)
+class ArchiveInvoiceView(GenericAPIView):
+    ...
+```
+
+The CI runs `python manage.py spectacular --validate --fail-on-warn` and fails if the schema has a warning, for example a view that drf-spectacular can't describe.
+
+The API answers JSON. Only with `DEBUG=True` does a route opened in the browser show DRF's browsable API; in `staging` and `prod` the browser gets JSON too.
+
+The `user_id` claim of both tokens is the user's UUID as a string, for example
+`"user_id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c"`.
+
+Emails are stored in lowercase and without surrounding spaces, and they are unique regardless of case: registering `Jane@Example.com` when `jane@example.com` exists creates nothing (see [Email verification](#email-verification)). Login accepts the email in any case.
+
+The password policy applies to the API and the admin. By default a password needs 8 characters, an uppercase letter, a lowercase letter, a digit and a symbol, and it can't be too similar to the email or the name. Only ASCII counts: `ñ` or `€` are allowed but don't meet any rule. Each rule can be changed with the `PASSWORD_*` variables. A registration that breaks several rules gets every message in `fields.password`:
+
+```json
+{"code": "invalid", "detail": "Invalid input.", "fields": {"password": ["This password is too short. It must contain at least 8 characters.", "This password must contain at least one symbol, such as ! ? # - _."]}}
+```
+
+### Health check
+
+`GET /api/v1/health/` tells a load balancer or an orchestrator whether the API works and reaches the database. It's public, it has no rate limit and the audit log doesn't store it.
+
+| Status | Body | When |
+|---|---|---|
+| `200` | `{"status": "ok", "database": "ok"}` | The API answers and the database runs a query |
+| `503` | `{"status": "error", "database": "error"}` | The database doesn't answer. The reason goes to the `core.health` logger |
+
+It answers with `Cache-Control: no-store` and shows no versions or hosts. In `staging` and `prod` it's the only route that also answers over plain HTTP, because probes reach the container without TLS. The `Host` header is still checked: the probe has to send one of `ALLOWED_HOSTS`, or Django answers `400`.
+
+| Probe | What to configure |
+|---|---|
+| The image's `HEALTHCHECK` | Nothing: it sends the first value of `ALLOWED_HOSTS` |
+| Kubernetes `httpGet` | `httpHeaders: [{name: Host, value: api.example.com}]` |
+| A load balancer that sends the container IP as `Host` (AWS ALB, for example) | Add that IP to `ALLOWED_HOSTS`, or point the check at a route of the proxy |
+
+### Errors
+
+Every error under `/api/` has the same shape, whatever its status:
+
+```json
+{"code": "invalid", "detail": "Invalid input.", "fields": {"email": ["Enter a valid email address."], "password": ["This password is too common."]}}
+```
+
+| Key | Content |
+|---|---|
+| `code` | Fixed identifier, in English, for the frontend to branch on. It doesn't change with the language |
+| `detail` | Message for a person, in the request's language (`Accept-Language`) |
+| `fields` | Messages per field, only for validation errors (`400` with `code` `invalid`). Errors that aren't tied to a field go in `non_field_errors`. Always present: `{}` when there are none |
+
+| Status | `code` |
+|---|---|
+| `400` | `invalid` (with `fields`), `parse_error` (the body isn't valid JSON) |
+| `401` | `not_authenticated` (no token), `token_not_valid` (expired, malformed or blacklisted token), `no_active_account` (wrong email or password), `authentication_failed` |
+| `403` | `permission_denied` |
+| `404` | `not_found`, also for a route that doesn't exist. `trailing_slash_required` for an API route written without its trailing slash (`/api/v1/auth/login`): `detail` gives the right path |
+| `405` | `method_not_allowed` |
+| `406` | `not_acceptable` (the client only accepts a format other than JSON) |
+| `429` | `throttled` (rate limit), `account_locked_out` (lockout). The wait in seconds is in the `Retry-After` header |
+| `500` | `server_error` |
+
+With `DEBUG=True` a route that doesn't exist and an unhandled error still show Django's debug page, which lists the routes and the traceback. Outside `/api/`, the admin keeps its HTML pages.
+
+Every API route ends with `/`. Without it, Django would redirect to the route with the slash, and the redirect drops the body of a `POST`, `PUT`, `PATCH` or `DELETE`. Under `/api/` the API answers `404` with `code` `trailing_slash_required` instead, with any `DEBUG` value and any method, `GET` included. The admin still redirects (`/admin` → `/admin/`).
+
+The format comes from `core.exceptions.api_exception_handler`. To use your own, point `EXCEPTION_HANDLER` at it in `REST_FRAMEWORK` (`core/settings.py`):
+
+```python
+REST_FRAMEWORK = {
+    # ...
+    "EXCEPTION_HANDLER": "myproject.errors.my_exception_handler",
+}
+```
+
+The routes that don't exist and the `500` responses come from `handler404` and `handler500` in `core/urls.py`.
+
+### Tokens
+
+The `access` token lasts 5 minutes and the `refresh` token 1 day (`JWT_ACCESS_MINUTES`, `JWT_REFRESH_DAYS`). Every call to `login/refresh/` returns both tokens and blacklists the `refresh` it received:
+
+```json
+{"access": "eyJhbGciOi...", "refresh": "eyJhbGciOi..."}
+```
+
+**A frontend has to store the new `refresh` after each refresh.** Sending the old one again gets `401`:
+
+```json
+{"code": "token_not_valid", "detail": "Token is blacklisted", "fields": {}}
+```
+
+- Two tabs that refresh at the same time with the same token: the second one gets `401`. Share the stored token between tabs, or send the user back to login on that `401`.
+- An `access` token is not revoked: it works until it expires. Keep `JWT_ACCESS_MINUTES` short.
+- Changing a user's password blacklists every `refresh` token that user has, which closes all their sessions: the next refresh of each one gets `401` and the frontend sends the user back to login. It applies to every way of changing it (the admin, `changepassword`, `create_admin_auto --update-password` or `set_password()` followed by `save()` in your code), but not to `User.objects.filter(...).update(password=...)`, which skips `save()`.
+- A refresh token of a deleted or inactive user gets `401` with `"No active account found for the given token."`.
+- Tokens are signed with `JWT_SIGNING_KEY`, or with `SECRET_KEY` when it's empty. Changing the key invalidates every token already issued.
+
+Each issued and each blacklisted token is a row in the database, visible in the admin under "Token Blacklist". Delete the expired ones once a day:
+
+```bash
+python manage.py flushexpiredtokens
+```
+
+On Linux and WSL, with cron (`crontab -e`), adjusting the paths:
+
+```text
+0 3 * * * cd /path/to/project && .venv/bin/python manage.py flushexpiredtokens
+```
+
+On Windows, with the Task Scheduler, from PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\python.exe" -Argument "manage.py flushexpiredtokens" -WorkingDirectory "C:\path\to\project"
+Register-ScheduledTask -TaskName "flushexpiredtokens" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)
+```
+
+### Logout
+
+`POST /api/v1/auth/logout/` blacklists the `refresh` token in the body. It needs no `Authorization` header: whoever holds the refresh token can already use it, so it can also revoke it, and logout keeps working after the access token expired.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/logout/ \
+  -H "Content-Type: application/json" \
+  -d '{"refresh": "<refresh>"}'
+```
+
+| Status | Body | When |
+|---|---|---|
+| `200` | `{}` | The `refresh` is now blacklisted. Using it in `login/refresh/` gets `401` |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"refresh": ["This field is required."]}}` | No `refresh` in the body |
+| `401` | `{"code": "token_not_valid", "detail": "Token is blacklisted", "fields": {}}` | The `refresh` was already used or logged out. Other messages for an expired, malformed or `access` token, always with `"code": "token_not_valid"` |
+
+**The `access` token is not revoked**: it keeps working until it expires (`JWT_ACCESS_MINUTES`, 5 minutes by default). The frontend has to delete both tokens on logout. A `401` from logout means the session was already closed, so the frontend can treat it as a logout.
+
+### Public registration
+
+Registration is open by default. With `ALLOW_PUBLIC_REGISTRATION=False`, `POST /api/v1/auth/register/` answers `403` and creates nothing:
+
+```json
+{"code": "permission_denied", "detail": "Public registration is disabled.", "fields": {}}
+```
+
+Users can still be added from the admin or with `create_admin_auto`, and existing users log in as before. The rejections don't count against `THROTTLE_REGISTER_RATE`. Only `true`, `yes`, `y`, `on`, `ok` or `1` (any case) keep it open: any other value, a typo included, closes it.
+
+### Profile
+
+`/api/v1/auth/me/` is the profile of whoever sends the token (`Authorization: Bearer <access>`). Without a valid token it answers `401`.
+
+```bash
+curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access>"
+```
+
+```json
+{"id": "8f419aff-49ec-4f42-b9b6-0d8faa76199c", "email": "jane@example.com", "first_name": "Jane", "last_name": "Doe", "date_joined": "2026-10-16T13:20:05.123456Z"}
+```
+
+`PATCH` changes `first_name` and `last_name` (up to 150 characters each, empty allowed) and returns the whole profile. `id`, `email` and `date_joined` are read-only: if they come in the body they are ignored without an error, and any other field too. A name that is too long gets `400` with `{"code": "invalid", "detail": "Invalid input.", "fields": {"first_name": ["Ensure this field has no more than 150 characters."]}}`. `PUT`, `POST` and `DELETE` get `405`.
+
+Changing the email is not available here: it needs the new address verified first.
+
+### Change password
+
+`POST /api/v1/auth/password/change/` changes the password of whoever sends the token. It asks for the current password, and the new one goes through the same policy as the registration.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password/change/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"current_password": "<current>", "new_password": "<new>", "new_password2": "<new>"}'
+```
+
+| Status | Body | When |
+|---|---|---|
+| `204` | — | The password changed |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"current_password": ["Your current password is incorrect."]}}` | Wrong current password. A weak new password fills `fields.new_password`, a confirmation that doesn't match fills `fields.new_password2`, and a missing field gets `"This field is required."` |
+| `401` | `{"code": "not_authenticated", ...}` | No token. An invalid or expired one gets `"code": "token_not_valid"` |
+| `429` | `{"code": "throttled", ...}` | More than `THROTTLE_PASSWORD_RATE` attempts (5 per hour by default, per user) |
+
+**Every session of the user is closed, the one that made the change included**: all its refresh tokens go to the blacklist, as with any password change (see [Tokens](#tokens)). The frontend already has the new password, so after the `204` it logs in again to get a new pair. The current `access` token keeps working until it expires.
+
+### Password reset
+
+The API has no pages of its own, so the reset takes two calls and a page in your frontend:
+
+1. `POST /api/v1/auth/password/reset/` with `{"email": "..."}`. It always answers `200` with the same body, whether the email has an account or not, so nobody can use it to find out who is registered:
+
+   ```json
+   {"detail": "If the email belongs to an account, a reset link is on its way."}
+   ```
+
+   If the account exists, is active and has a password, it gets an email with a link built from `FRONTEND_PASSWORD_RESET_URL`, where `{uid}` and `{token}` are replaced.
+2. The link opens your frontend page, which asks for the new password and sends it with the two values:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/password/reset/confirm/ \
+     -H "Content-Type: application/json" \
+     -d '{"uid": "<uid>", "token": "<token>", "new_password": "<new>", "new_password2": "<new>"}'
+   ```
+
+| Status | Body | When |
+|---|---|---|
+| `204` | — | The password changed |
+| `400` | `{"code": "invalid", "detail": "Invalid input.", "fields": {"token": ["Invalid or expired link."]}}` | The link was already used, expired (`PASSWORD_RESET_TIMEOUT_MINUTES`, 60 by default) or was altered. A wrong `uid` gets the same answer. A weak password fills `fields.new_password`, and a confirmation that doesn't match fills `fields.new_password2` |
+| `429` | `{"code": "throttled", ...}` | More than `THROTTLE_PASSWORD_RATE` requests from the same IP (5 per hour by default, shared by both routes) |
+
+A link works once: setting the password changes what the token was signed with, and so does logging in after asking for it. A confirmed reset closes every session of the user, like any password change, and clears the failed logins that had locked the account (see [Account lockout](#account-lockout)). The email goes out in the background, so asking for a reset takes the same time whether the account exists or not.
+
+`FRONTEND_PASSWORD_RESET_URL` is required in every environment. Keep it in quotes in `.env`: the `&` of a query string breaks the line when a shell runs `source .env`.
+
+### Email verification
+
+`POST /api/v1/auth/register/` answers `201` with the submitted `email`, `first_name` and `last_name` whether the email already had an account or not. With an existing email nothing is created or changed, and the owner gets an email saying someone tried to register with it. The duplicate takes as long to answer as a new account, so the timing doesn't give it away either. A body that fails validation (passwords that don't match, a weak password) still gets `400`.
+
+With `REQUIRE_EMAIL_VERIFICATION=True`, a new account also gets an email with a link built from `FRONTEND_EMAIL_VERIFICATION_URL`, and it can't log in until it follows it:
+
+1. Until then, login answers `401` with the same body as a wrong password. A different answer would tell whoever registered an email whether it already had an account. After a registration, the frontend can show "check your email, or ask for a new link".
+2. The frontend page sends the two values of the link:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/verify-email/ \
+     -H "Content-Type: application/json" -d '{"uid": "<uid>", "token": "<token>"}'
+   ```
+
+   It answers `204`, and from then on login works. A used, expired (`EMAIL_VERIFICATION_TIMEOUT_HOURS`, 24 by default) or altered link gets `400` with `{"code": "invalid", "detail": "Invalid input.", "fields": {"token": ["Invalid or expired link."]}}`.
+3. `POST /api/v1/auth/verify-email/resend/` with `{"email": "..."}` sends a new link. It always answers `200` with the same body, and only sends when the account exists, is active and is still pending.
+
+Both routes share `THROTTLE_VERIFY_EMAIL_RATE` (5 per hour by default, per IP). Users created in the admin or with `create_admin_auto`, and the ones that existed before, are verified. The admin shows the "Email verified" column and filter, and the field can be ticked by hand. A deactivated user stays deactivated: verifying never touches `is_active`. Turning the flag off lets pending accounts log in.
+
+With `REQUIRE_EMAIL_VERIFICATION=False` (the default), a new account logs in right away. The `201` hides the duplicate, but trying to log in with the password just used still shows whether the account was new: closing that needs the verification on.
+
+### Rate limits
+
+Login allows 10 requests every 10 minutes; registration, the password change and reset, and the email verification 5 per hour each. They are counted by client IP, except the password change, which is counted per user. The next request gets `429` until the period frees a slot, with the wait in seconds in the `Retry-After` header and in `detail`:
+
+```json
+{"code": "throttled", "detail": "Request was throttled. Expected available in 542 seconds.", "fields": {}}
+```
+
+Every request counts, whatever its result: a correct password after 10 failed attempts also gets `429`. Each limit is a `THROTTLE_*_RATE` variable written as `<requests>/<period>`, where the period is `s`, `m`, `h` or `d` with an optional multiple (`10/m`, `10/10m`, `100/6h`). An empty value turns the limit off, and an invalid one stops Django from starting. To limit a view you add, set `throttle_scope` to one of the scopes, or add yours to `THROTTLE_RATE_DEFAULTS` in `core/settings.py`.
+
+Two things to set before production:
+
+- **Behind a proxy**, set `TRUSTED_PROXY_COUNT` to the number of proxies that append to `X-Forwarded-For`. With `0`, every request seems to come from the proxy and all clients share one limit. A higher number than the real one lets clients pick their own IP.
+- **With several processes** (gunicorn workers, more than one server), the default cache is per process and each one counts on its own: 4 workers allow 40 logins every 10 minutes. Point `CACHE_URL` at Redis (`redis://host:6379/0`) and add the `redis` package to the project.
+
+### Account lockout
+
+After 5 failed logins for the same account from the same IP, that pair is locked for 15 minutes, in the API and in the admin. The fifth failure already gets the lockout, and so does the right password while it lasts. The API answers `429` with the same shape as the rate limits:
+
+```json
+{"code": "account_locked_out", "detail": "Too many failed login attempts. Expected available in 900 seconds.", "fields": {}}
+```
+
+The admin shows a page with the minutes left, also with `429`.
+
+- The account is the email in lowercase: changing its case doesn't start a new count.
+- The same account from another IP can still log in, so an attacker can't lock a user out of their own network.
+- A successful login resets the count. It also updates `last_login`, in the API too.
+- Each failed attempt during the lockout restarts the 15 minutes for that account and IP.
+- The IP is the same one the rate limits and the audit log use (`TRUSTED_PROXY_COUNT`).
+
+To unlock before the time is up, delete the attempt in the admin, under "Axes" → "Access attempts", or run one of these:
+
+```bash
+python manage.py axes_reset_username user@example.com
+python manage.py axes_reset
+```
+
+The attempts never store the password. Successful logins are kept in "Access logs"; `python manage.py axes_reset_logs 30` deletes the ones older than 30 days.
+
+`AXES_FAILURE_LIMIT` and `AXES_COOLOFF_MINUTES` change the numbers. `AXES_LOCKOUT_PARAMETERS` decides what is locked: fields joined with `+` lock their combination, and commas separate independent rules. The fields are `username`, `ip_address` and `user_agent`; any other value stops Django from starting.
+
+| Value | Locks |
+|---|---|
+| `username+ip_address` (default) | The account from that IP |
+| `username` | The account from every IP. Anyone can lock out any user |
+| `ip_address` | Every account from that IP |
+
+The rate limits and the lockout complement each other: the first counts requests per IP and stops one IP trying many accounts; the second counts failures per account and stops slow attempts against one account.
+
 The admin panel is at `/admin/`.
+
+### Pagination
+
+Lists are paginated by page number. A list view (`ListAPIView`, or a `ViewSet` with `list`) returns:
+
+```json
+{"count": 134, "next": "http://localhost:8000/api/v1/items/?page=2", "previous": null, "results": [{"id": 1}, {"id": 2}]}
+```
+
+- `?page=` picks the page, from `1`. A page that doesn't exist gets `404` with `code` `not_found`.
+- `?page_size=` changes the size up to `API_MAX_PAGE_SIZE`. A larger number gets the maximum, not an error; `0`, a negative number or text gets the default.
+- `API_PAGE_SIZE` (default `20`) and `API_MAX_PAGE_SIZE` (default `100`) are read from `.env`. Zero, a negative number, text, or a page size larger than the maximum stop Django from starting.
+
+A view can change its own pagination with `pagination_class`, or turn it off with `None`:
+
+```python
+from rest_framework.pagination import LimitOffsetPagination
+
+
+class ItemListView(ListAPIView):
+    pagination_class = LimitOffsetPagination
+
+
+class CountryListView(ListAPIView):
+    pagination_class = None
+```
+
+### Permissions
+
+`security.permissions` has two classes to protect a view in one line, on top of Django's permissions and groups:
+
+```python
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAuthenticated
+
+from security.permissions import HasPermission, HasRole
+
+
+class AuditLogListView(ListAPIView):
+    permission_classes = (HasPermission("security.view_auditlog"),)
+
+
+class InvoiceListView(ListAPIView):
+    permission_classes = (HasRole("billing") | HasPermission("billing.view_invoice"),)
+
+
+class ReportView(ListAPIView):
+    permission_classes = (IsAuthenticated & ~HasRole("guest"),)
+```
+
+- `HasPermission("app_label.codename")` passes if the user has that permission, directly or through one of their groups (`user.has_perm`). A name without the app label stops Django when the view is imported.
+- `HasRole("name")` passes if the user belongs to the Django `Group` with that name. Groups are created in the admin, under "Authentication and Authorization" → "Groups", or from the code with [Roles](#roles).
+- An active superuser passes both, so `~HasRole(...)` leaves superusers out.
+- Without a token they answer `401`; with a token and without the permission or role, `403` with `code` `permission_denied`.
+- They combine with `&`, `|` and `~`, between themselves and with DRF's classes.
+- A permission or role that doesn't exist is never met, except by a superuser. Django creates four permissions per model, named `<app_label>.<add|change|delete|view>_<model>` (`security.view_auditlog`).
+
+#### Roles
+
+Roles live in the code, so every environment gets the same groups. Declare them in `core/roles.py`, each with its list of permissions:
+
+```python
+ROLES = {
+    "auditors": ["security.view_auditlog"],
+    "support": ["security.view_user", "security.change_user"],
+}
+```
+
+Then create or update their groups:
+
+```bash
+python manage.py sync_roles --dry-run   # shows what would change
+python manage.py sync_roles
+```
+
+- Each role becomes a Django `Group` with that name, the one `HasRole("auditors")` checks.
+- It adds the permissions a group lacks and removes the ones no longer declared. Running it again changes nothing.
+- A permission that doesn't exist is reported as a warning and the rest is applied. Permissions are created by `migrate`, so run `sync_roles` after it.
+- A permission without the app label (`view_auditlog`) stops the command before it changes anything.
+- Groups in the database that aren't declared are listed and left as they are.
+- Changes made in the admin to a declared role are undone by the next run: edit `core/roles.py` instead.
+- The base declares no roles. To keep them elsewhere, point `ROLE_DEFINITIONS` in `core/settings.py` at your own dict.
+
+### CORS
+
+A browser only lets a frontend on another domain or port call the API if the API allows that origin. List the origins in `CORS_ALLOWED_ORIGINS`, each with its scheme and port and without a trailing slash:
+
+```dotenv
+CORS_ALLOWED_ORIGINS=https://app.example.com,http://localhost:5173
+```
+
+- Empty (the default) allows no origin: the API works as before for servers, `curl` and same-origin pages.
+- `*`, or a domain without scheme, stops Django from starting. There is no "allow every origin" setting.
+- It only applies to `/api/`. The admin is never exposed to other origins.
+- Cookies are not sent across origins: the frontend sends the token in `Authorization`, which is allowed.
+- The frontend can read the `Retry-After` header of a `429` (see [Rate limits](#rate-limits)).
+
+---
+
+## Email
+
+The project sends email through any SMTP provider, configured with one variable. With `EMAIL_URL` empty, each email is printed in the `runserver` console, which is enough to develop.
+
+| Provider | `EMAIL_URL` |
+|---|---|
+| SendGrid | `smtp+tls://apikey:<api-key>@smtp.sendgrid.net:587` |
+| Mailgun | `smtp+tls://postmaster%40mg.example.com:<smtp-password>@smtp.mailgun.org:587` |
+| Amazon SES | `smtp+tls://<smtp-username>:<smtp-password>@email-smtp.us-east-1.amazonaws.com:587` |
+
+- `smtp+tls://` uses STARTTLS, usually on port `587`. For TLS from the first byte (port `465`) use `smtp+ssl://`. `smtp://` sends without encryption. Watch out: `smtps://` means STARTTLS here, not port 465.
+- The user and the password go inside the URL, so these characters have to be percent-encoded: `@` as `%40`, `:` as `%3A`, `/` as `%2F`, `#` as `%23`, `?` as `%3F` and `%` as `%25`. Amazon SES passwords often have `/`. To encode one: `python -c "import urllib.parse; print(urllib.parse.quote(input(), safe=''))"`.
+- `DEFAULT_FROM_EMAIL` has to be an address the provider lets you send from (a verified domain or sender).
+- An unknown scheme (`foo://`) stops Django from starting.
+
+To send an email from your code, write three templates in a folder of your app, `templates/<prefix>/subject.txt`, `body.txt` and `body.html`, and call:
+
+```python
+from core.emails import send_templated_email
+
+send_templated_email("emails/welcome", user.email, {"name": user.first_name})
+```
+
+The templates render in the active language, so `{% translate %}` and `{% blocktranslate %}` work as in any other template. They also escape HTML like any template: wrap `subject.txt` and `body.txt` in `{% autoescape off %}`, or a link with `&` arrives as `&amp;` in the plain text version. The email goes out in a separate thread once the database transaction commits: the request does not wait for the SMTP server, and nothing is sent if the transaction rolls back. A delivery error is logged under the `core.emails` logger with the template name, not the recipient. Each send waits up to 10 seconds for the server. If the process stops in that instant, that email is lost.
+
+## Audit log
+
+`security.middleware.AuditMiddleware` stores every `POST`, `PUT`, `PATCH` and `DELETE` in `AuditLog`: user, IP, user agent, method, path, the response status and the body. You can browse it in the admin under **Security › Audit Logs**.
+
+The admin shows the audit log read-only: nobody, superusers included, can add, edit or delete records there. Old records are deleted with [`purge_audit_logs`](#purging-old-records). Staff users need the `security.view_auditlog` permission to see it.
+
+The list filters by method, status class (`2xx`, `4xx`…) and date. The options are fixed, so loading the list never reads the whole table to build them, and it has no year/month/day bar for the same reason. Keep it that way if you add filters: a filter on a plain field (`list_filter = ("path",)`) or a `date_hierarchy` runs a `SELECT DISTINCT` over every record on each load.
+
+### Stored bodies
+
+| `Content-Type` | What is stored |
+|---|---|
+| `application/json` | The parsed JSON |
+| `application/x-www-form-urlencoded` | The form fields, in any method. Admin forms use this one |
+| `multipart/form-data` | The form fields of a `POST`. Uploaded files are never read or stored. A `PUT` or `PATCH` stores `{}` |
+| Anything else | `{}` |
+
+Form fields with one value are stored as a string, and repeated fields as a list. The CSRF token (`csrfmiddlewaretoken`) is dropped. Every body goes through the redaction below, so the passwords of the admin login and of the user forms (`password`, `password1`, `password2`) are stored as `[REDACTED]`. The email of the admin login is stored in clear under `username`, the same way the API login stores `email`.
+
+Form fields can hold personal data. Add the keys of your own forms that must not be stored to `AUDIT_EXTRA_SENSITIVE_KEYS`.
+
+### Client IP
+
+The IP comes from `core.client_ip.get_client_ip`, the same function the rate limits use, so both see the same client.
+
+| `TRUSTED_PROXY_COUNT` | IP stored | When |
+|---|---|---|
+| `0` (default) | The connection address. `X-Forwarded-For` is ignored | Django receives the requests directly |
+| `1` | The last entry of `X-Forwarded-For` | One proxy or load balancer in front |
+| `N` | The Nth entry from the right | N proxies, each appending its own entry |
+
+Each proxy appends the address it saw to the right of the header, and anything further left can be written by the client. If the chosen entry isn't a valid IP, or the header is missing, the connection address is stored.
+
+### Redacted values
+
+Values whose key looks like a credential are stored as `[REDACTED]`, at any depth of the body. Keys are compared in lowercase and without `-` or `_`, so `api_key`, `apiKey` and `API-Key` are the same key.
+
+| Rule | Keys |
+|---|---|
+| Contains | `password`, `passwd`, `token`, `secret`, `apikey`, `authorization`, `credential`, `privatekey` |
+| Is exactly | `otp`, `pin`, `cvv`, `cvc`, `cardnumber`, `ssn`, `access`, `refresh` |
+
+Short words only match whole keys: as a fragment, `pin` would also hide `shipping`. For keys of your own project, list them in `AUDIT_EXTRA_SENSITIVE_KEYS`. They match whole keys after the same normalization: `AUDIT_EXTRA_SENSITIVE_KEYS=tax-id,iban` redacts `tax_id`, `taxId` and `IBAN`, but not `tax_id_type`.
+
+Records stored before a key was added keep their value.
+
+### Payload size
+
+Bodies larger than `AUDIT_PAYLOAD_MAX_BYTES` (64 KB by default) are not stored. The record keeps a marker with the size instead:
+
+```json
+{"_omitted": "payload_too_large", "size_bytes": 2097152}
+```
+
+The size is measured before parsing the body, so an oversized body is never parsed. For `multipart/form-data` the size is that of the stored fields, without the files. A body is never cut in half: a truncated JSON would be invalid and could end before a sensitive key gets redacted. Set `0` to store every body.
+
+Django rejects bodies over `DATA_UPLOAD_MAX_MEMORY_SIZE` (2.5 MB by default) with a `400` before the request reaches the view, and those requests leave no audit record.
+
+### Purging old records
+
+The audit log grows with every request, and the admin can't delete records. `purge_audit_logs` deletes the ones older than a number of days:
+
+```bash
+python manage.py purge_audit_logs --older-than 90
+```
+
+```text
+About to delete 1520 audit log records, from 2026-01-03 to 2026-07-17 inclusive.
+Continue? [y/N]
+```
+
+| Option | Effect |
+|---|---|
+| `--older-than DAYS` | Required, 1 or more. Counts whole days in `TIME_ZONE`: run on 2026-10-16, `--older-than 30` deletes up to 2026-09-15 inclusive and keeps everything from 2026-09-16 |
+| `--dry-run` | Shows the count and the range, and deletes nothing |
+| `--no-input` | Deletes without asking. Without it and without a terminal, the command stops with an error |
+
+With nothing to delete it says so and doesn't ask. Records are deleted in batches of 5000, each in its own transaction, so the table is never locked for the whole purge.
+
+On Linux and WSL, with cron (`crontab -e`), adjusting the paths and the period:
+
+```text
+30 3 * * * cd /path/to/project && .venv/bin/python manage.py purge_audit_logs --older-than 90 --no-input
+```
+
+On Windows, with the Task Scheduler, from PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\python.exe" -Argument "manage.py purge_audit_logs --older-than 90 --no-input" -WorkingDirectory "C:\path\to\project"
+Register-ScheduledTask -TaskName "purge_audit_logs" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 3:30am)
+```
+
+---
+
+## Logging
+
+Every log line goes to the console (`stderr`), where Docker, Kubernetes and most platforms collect it.
+
+| Variable | Values | Default |
+|---|---|---|
+| `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, in any case | `INFO` |
+| `LOG_FORMAT` | `text` to read in a terminal, `json` for a log collector such as Loki or Datadog | `text` |
+
+Any other value stops Django from starting. With `json`, each line is one object with `timestamp` (UTC), `level`, `logger`, `message` and the extra fields of the event:
+
+```json
+{"timestamp": "2026-10-17T14:05:12.345Z", "level": "WARNING", "logger": "security.security_events", "message": "Failed login for jane@example.com from 203.0.113.9.", "event": "login_failed", "email": "jane@example.com", "ip": "203.0.113.9", "path": "/api/v1/auth/login/"}
+```
+
+### Security events
+
+The `security` logger records these events. Filter them by the `event` field:
+
+| `event` | Level | When | Fields |
+|---|---|---|---|
+| `login_failed` | `WARNING` | A wrong email or password, in the API or in the admin | `email`, `ip`, `path` |
+| `account_locked_out` | `WARNING` | An account gets locked, and every attempt while it stays locked. See [Account lockout](#account-lockout) | `email`, `ip` |
+| `token_revoked` | `INFO` | A logout blacklists a refresh token | `user_id`, `reason` |
+| `tokens_revoked` | `INFO` | A password change or reset revokes every session | `user_id`, `count`, `reason` |
+
+The email is the one sent, lowercased. Passwords and tokens are never logged, not even masked.
+
+django-axes writes its own lines in the `axes` logger, as plain text even with `LOG_FORMAT=json`. Most are `INFO`: `LOG_LEVEL=WARNING` leaves them out. The test suite logs a lot at `INFO`: the CI runs it with `LOG_LEVEL=ERROR`, and you can do the same in your `.env`.
 
 ---
 
@@ -385,6 +1073,8 @@ The admin panel is at `/admin/`.
 
 **Do not edit the `requirements` files by hand.** After changing a dependency, regenerate both.
 
+The CI fails when a package of `requirements.txt` has a known vulnerability (`pip-audit`). Dependabot opens a pull request against `staging` every week with the new versions of the packages and of the GitHub Actions; it starts once `.github/dependabot.yml` reaches `main`. Its pull requests don't regenerate the `requirements` files: see [CONTRIBUTING.md](CONTRIBUTING.md#dependabot-pull-requests). Dependabot alerts and security updates are turned on in the repository settings, not in that file.
+
 More: [managing dependencies in uv](https://docs.astral.sh/uv/concepts/projects/dependencies/) · [exporting the lockfile](https://docs.astral.sh/uv/concepts/projects/export/).
 
 ---
@@ -396,8 +1086,11 @@ The tests need the database running (step 3).
 | Task | With uv | With pip + venv |
 |---|---|---|
 | Run the tests | `uv run python manage.py test` | `python manage.py test` |
+| Run the tests and measure the coverage | `uv run coverage run manage.py test` | `coverage run manage.py test` |
+| Show the coverage, with the lines not run | `uv run coverage report` | `coverage report` |
 | Check formatting | `uv run black --check .` | `black --check .` |
 | Apply formatting | `uv run black .` | `black .` |
+| Lint | `uv run ruff check .` | `ruff check .` |
 
 ---
 
@@ -444,6 +1137,22 @@ More help: [how to install Django on Windows](https://docs.djangoproject.com/en/
 ### Line endings
 
 `.gitattributes` makes Git store and check out every file with Linux line endings (LF), on Windows too. If an editor converts them to CRLF, Git normalizes them on commit. More in [configuring Git to handle line endings](https://docs.github.com/en/get-started/git-basics/configuring-git-to-handle-line-endings).
+
+---
+
+## Upgrading the PostgreSQL minor version
+
+`docker-compose.yml` and the CI pin the same image, `postgres:18.6-alpine`, so every clone and every CI run use the same version. A minor version (18.6 to 18.7) keeps the data format: the volume stays as it is and there is nothing to dump.
+
+1. Change the tag in `docker-compose.yml` and in `.github/workflows/ci.yml`. A test fails if they differ.
+2. Pull the image and recreate the container:
+
+   ```bash
+   docker compose pull db
+   docker compose up -d --wait
+   ```
+
+The commands are the same in Linux, WSL, PowerShell and cmd. The available versions are listed under [Tags](https://hub.docker.com/_/postgres/tags?name=18.) of the official image. A new major version (19) does change the data format: see the next section.
 
 ---
 
@@ -494,9 +1203,19 @@ Check the result with `python manage.py check` and `python manage.py test`.
 
 ## Internationalization
 
-The project is ready for English and Spanish.
+The API, the emails and the admin answer in English or Spanish. The language comes from the `Accept-Language` header of each request; without it, English. A validation error with `Accept-Language: es`:
 
-1. **Mark the strings** with `gettext_lazy`:
+```json
+{"code": "invalid", "detail": "Entrada inválida.", "fields": {"password": ["La contraseña debe contener al menos: un símbolo, como ! ? # - _."]}}
+```
+
+`code` and the field names don't change with the language: a frontend branches on them, and shows `detail` and the messages.
+
+The Spanish catalog is `locale/es/LC_MESSAGES/django.po`, and next to it the compiled `django.mo`. Both are committed, so the translations work without installing `gettext`. Django, Django REST Framework, SimpleJWT and django-axes bring their own catalogs.
+
+To add or change a text:
+
+1. **Mark it** with `gettext_lazy`:
 
    ```python
    from django.utils.translation import gettext_lazy as _
@@ -505,14 +1224,14 @@ The project is ready for English and Spanish.
        name = models.CharField(_("name"), max_length=100)
    ```
 
-2. **Create the translations folder** the first time (`mkdir locale`) and **generate the files**:
+2. **Update the catalog.** English is the source language, so it needs no catalog:
 
    ```bash
-   python manage.py makemessages -l es -l en
+   python manage.py makemessages -l es --ignore ".venv*" --ignore staticfiles --ignore "*/tests/*"
    ```
 
-3. **Translate** in `locale/es/LC_MESSAGES/django.po` and `locale/en/LC_MESSAGES/django.po`.
-4. **Compile:**
+3. **Translate** the new entries of `django.po`, and remove the `#, fuzzy` mark from the ones `makemessages` guessed.
+4. **Compile** and commit the `.po` and the `.mo` together:
 
    ```bash
    python manage.py compilemessages --ignore ".venv*"
@@ -520,7 +1239,7 @@ The project is ready for English and Spanish.
 
    Without `--ignore`, Django also walks the virtual environment and recompiles the thousands of catalogs of the installed libraries.
 
-`makemessages` and `compilemessages` need `gettext` installed on the system. On Windows, see [gettext on Windows](https://docs.djangoproject.com/en/5.2/topics/i18n/translation/#gettext-on-windows).
+A test fails if an entry has no translation, is still `fuzzy`, or the `.mo` doesn't match the `.po`. `makemessages` and `compilemessages` need `gettext` installed on the system. On Windows, see [gettext on Windows](https://docs.djangoproject.com/en/5.2/topics/i18n/translation/#gettext-on-windows).
 
 ---
 

@@ -1,0 +1,4 @@
+{% load i18n %}<p>{% translate "To finish creating your account, confirm this is your email by opening this link:" %}</p>
+<p><a href="{{ verification_url }}">{{ verification_url }}</a></p>
+<p>{% blocktranslate count hours=timeout_hours trimmed %}The link expires in {{ hours }} hour. If it expires, ask for a new one from the app.{% plural %}The link expires in {{ hours }} hours. If it expires, ask for a new one from the app.{% endblocktranslate %}</p>
+<p>{% translate "If you didn't create an account, ignore this email." %}</p>

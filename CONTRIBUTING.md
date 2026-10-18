@@ -68,9 +68,11 @@ uv export --no-hashes -o requirements-dev.txt
 
 ### Dependabot pull requests
 
-Dependabot updates `pyproject.toml` and `uv.lock` every week, but not the requirements files,
-so the CI fails on its pull requests. Before merging one, check out its branch, run the two
-`uv export` commands above, commit both files and push: the CI runs again.
+Every week Dependabot opens one pull request that groups the minor and patch updates of the
+packages declared in `pyproject.toml`, and a separate one for each major update. It changes
+`pyproject.toml` and `uv.lock` but not the requirements files, so the CI fails on its pull requests.
+Before merging one, check out its branch, run the two `uv export` commands above, commit both files
+and push: the CI runs again. Transitive packages are updated with the direct ones that need them.
 
 ## Code style
 

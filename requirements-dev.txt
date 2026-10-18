@@ -72,7 +72,7 @@ pathspec==1.1.1
     # via black
 pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via ipython
-platformdirs==4.12.2
+platformdirs==4.13.1
     # via black
 prompt-toolkit==3.0.53
     # via ipython

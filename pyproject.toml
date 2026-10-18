@@ -24,7 +24,7 @@ dev = [
     "coverage>=7.16.2,<8",
     "django-extensions>=4.1,<5",
     "ipython>=9.9.0,<10",
-    "ruff>=0.16.10,<0.17",
+    "ruff>=0.17.1,<0.18",
 ]
 
 [tool.uv]

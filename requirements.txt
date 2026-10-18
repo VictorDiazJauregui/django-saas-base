@@ -24,7 +24,7 @@ django-cors-headers==4.9.0
     # via saas
 django-environ==0.14.0
     # via saas
-djangorestframework==3.18.1
+djangorestframework==3.18.3
     # via
     #   djangorestframework-simplejwt
     #   drf-spectacular

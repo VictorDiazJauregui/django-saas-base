@@ -68,9 +68,12 @@ uv export --no-hashes -o requirements-dev.txt
 
 ### Pull requests de Dependabot
 
-Dependabot actualiza `pyproject.toml` y `uv.lock` cada semana, pero no los archivos de
-requirements, así que la CI falla en sus pull requests. Antes de mergear una, bajá su branch, corré
-los dos `uv export` de arriba, commiteá los dos archivos y hacé push: la CI vuelve a correr.
+Cada semana Dependabot abre un pull request que agrupa las actualizaciones minor y patch de los
+paquetes declarados en `pyproject.toml`, y uno aparte por cada actualización major. Cambia
+`pyproject.toml` y `uv.lock` pero no los archivos de requirements, así que la CI falla en sus pull
+requests. Antes de mergear uno, bajá su branch, corré los dos `uv export` de arriba, commiteá los dos
+archivos y hacé push: la CI vuelve a correr. Los paquetes transitivos se actualizan junto con los
+directos que los necesitan.
 
 ## Estilo de código
 

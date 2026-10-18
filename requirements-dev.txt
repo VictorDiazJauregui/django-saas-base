@@ -45,7 +45,7 @@ drf-spectacular==0.30.0
     # via saas
 drf-spectacular-sidecar==2026.10.1
     # via saas
-executing==2.2.1
+executing==2.3.0
     # via stack-data
 gunicorn==26.2.0
     # via saas

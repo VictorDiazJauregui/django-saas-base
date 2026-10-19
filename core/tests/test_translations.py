@@ -1,15 +1,18 @@
 import ast
 import gettext
+import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from django.conf import settings
 from django.core import mail
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from django.utils.translation import deactivate, get_language
 from rest_framework import status
 
 from security.tests.account_links import with_account_links
-from security.tests.api_test_case import CacheResetAPITestCase
+from security.tests.api_test_case import LanguageResetAPITestCase
 from security.tests.test_throttling import WRONG_PASSWORD, override_rates
 from security.tests.user_factory import (
     DEFAULT_EMAIL,
@@ -26,7 +29,7 @@ ENGLISH = {"HTTP_ACCEPT_LANGUAGE": "en"}
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
 @override_rates(login=None, register=None, password=None)
-class SpanishApiMessagesTests(CacheResetAPITestCase):
+class SpanishApiMessagesTests(LanguageResetAPITestCase):
     def register_without_symbol(self, headers):
         payload = build_registration_payload(
             password=NO_SYMBOL_PASSWORD, password2=NO_SYMBOL_PASSWORD
@@ -160,3 +163,15 @@ class SpanishCatalogTests(SimpleTestCase):
                     self.assertEqual(
                         compiled.get(compiled_key(entry, index)), translation
                     )
+
+
+class RequestLanguageIsolationTests(TestCase):
+    def test_a_spanish_request_does_not_outlive_its_test(self):
+        self.addCleanup(deactivate)
+        result = unittest.TestResult()
+
+        spanish_test = SpanishApiMessagesTests("test_closed_registration_in_spanish")
+        unittest.TestSuite([spanish_test]).run(result)
+
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+        self.assertEqual(get_language(), settings.LANGUAGE_CODE)

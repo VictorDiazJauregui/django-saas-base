@@ -1184,18 +1184,21 @@ Referencia: [imagen oficial de PostgreSQL](https://hub.docker.com/_/postgres).
 
 ## Renombrar el proyecto
 
-La carpeta `core` contiene la configuración. Podés dejarla con ese nombre; si querés cambiarlo (por ejemplo a `tienda`), **no uses buscar y reemplazar sobre todo el proyecto**: la palabra `core` también forma parte de `django.core`, y romperías esas importaciones.
+La carpeta `core` contiene la configuración y el código compartido: settings, URLs, errores, emails y throttling. Podés dejarla con ese nombre. Para cambiarlo (por ejemplo a `tienda`), renombrá la carpeta y cada referencia al paquete `core`: imports, rutas con puntos en `settings.py`, el `Dockerfile` y `pyproject.toml`. **No busques y reemplaces la palabra sola**: `core` también forma parte de `django.core`, y romperías esas importaciones.
 
-Renombrá la carpeta y cambiá solo estas referencias:
+Este comando lista las referencias que hay que cambiar y deja afuera `django.core`:
 
-| Archivo | Qué cambiar |
-|---|---|
-| `manage.py` | `"core.settings"` |
-| `<carpeta>/asgi.py` | `"core.settings"` |
-| `<carpeta>/wsgi.py` | `"core.settings"` |
-| `<carpeta>/settings.py` | `ROOT_URLCONF`, `WSGI_APPLICATION` y la entrada `"core"` de `INSTALLED_APPS` |
-| `<carpeta>/tests.py` | Las dos menciones a `"core"` |
-| `pyproject.toml` | `name`, con el nombre de tu proyecto |
+```bash
+# Linux, WSL y PowerShell
+git grep -nE '(^|[^.[:alnum:]_])core([^[:alnum:]_]|$)' -- . ':!*.md' ':!uv.lock' ':!*.po'
+```
+
+```bat
+:: cmd
+git grep -nE "(^|[^.[:alnum:]_])core([^[:alnum:]_]|$)" -- . ":!*.md" ":!uv.lock" ":!*.po"
+```
+
+Cambiá cada una por el nombre nuevo. Los ids de los system checks (`core.W001` y similares) son solo etiquetas: si los cambiás, cambialos también en los tests. Los comentarios de `locale/` que apuntan a `core/...` los regenera `makemessages`. Después poné en `name` de `pyproject.toml` el nombre de tu proyecto.
 
 Comprobá el resultado con `python manage.py check` y `python manage.py test`.
 

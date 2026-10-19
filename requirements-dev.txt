@@ -34,7 +34,7 @@ django-cors-headers==4.9.0
 django-environ==0.14.0
     # via saas
 django-extensions==4.1
-djangorestframework==3.18.1
+djangorestframework==3.18.3
     # via
     #   djangorestframework-simplejwt
     #   drf-spectacular
@@ -104,7 +104,7 @@ rpds-py==2026.9.1
     # via
     #   jsonschema
     #   referencing
-ruff==0.16.10
+ruff==0.17.1
 sqlparse==0.6.0
     # via django
 stack-data==0.6.3

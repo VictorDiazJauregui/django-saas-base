@@ -1,14 +1,14 @@
 from django.test import override_settings
 from rest_framework import status
 
-from security.tests.api_test_case import CacheResetAPITestCase
+from security.tests.api_test_case import LanguageResetAPITestCase
 
 LOGIN_PATH = "/api/v1/auth/login"
 HEALTH_PATH = "/api/v1/health"
 ME_PATH = "/api/v1/auth/me"
 
 
-class ApiTrailingSlashTests(CacheResetAPITestCase):
+class ApiTrailingSlashTests(LanguageResetAPITestCase):
     def assertTrailingSlashError(self, response, expected_path):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(

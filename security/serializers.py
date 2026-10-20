@@ -6,6 +6,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import (
     TokenObtainPairSerializer,
+    TokenObtainSerializer,
     TokenRefreshSerializer,
 )
 
@@ -14,6 +15,7 @@ from .frontend_links import INVALID_LINK_MESSAGE
 from .login_lockout import raise_if_locked_out
 from .password_reset import find_user_for_reset
 from .registration import register_account
+from .two_factor import build_login_answer
 
 User = get_user_model()
 REGISTRATION_ANSWER_FIELDS = ("email", "first_name", "last_name")
@@ -156,9 +158,12 @@ class ExistingUserTokenRefreshSerializer(TokenRefreshSerializer):
 
 
 class LockoutAwareTokenObtainPairSerializer(TokenObtainPairSerializer):
+    # Only the credential check of SimpleJWT: the answer, tokens or a second-factor
+    # challenge, is decided after it.
     def validate(self, attrs):
         try:
-            return super().validate(attrs)
+            TokenObtainSerializer.validate(self, attrs)
         except AuthenticationFailed:
             raise_if_locked_out(self.context["request"])
             raise
+        return build_login_answer(self.user)

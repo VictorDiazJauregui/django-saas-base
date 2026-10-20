@@ -46,3 +46,20 @@ def log_tokens_revoked(user, count, reason):
         "reason": reason,
     }
     logger.info("Revoked %s refresh tokens of user %s.", count, user_id, extra=fields)
+
+
+def log_second_factor_failed(user):
+    fields = {"event": "second_factor_failed", "user_id": describe_user(user)}
+    logger.warning("Wrong second factor for user %s.", fields["user_id"], extra=fields)
+
+
+def log_two_factor_changed(user, enabled):
+    event = "two_factor_enabled" if enabled else "two_factor_disabled"
+    fields = {"event": event, "user_id": describe_user(user)}
+    state = "on" if enabled else "off"
+    logger.info(
+        "Two-factor authentication %s for user %s.",
+        state,
+        fields["user_id"],
+        extra=fields,
+    )

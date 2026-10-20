@@ -55,6 +55,31 @@ TOKEN_PAIR_RESPONSE = OpenApiResponse(
     ],
 )
 
+LOGIN_ANSWER = inline_serializer(
+    "LoginAnswer",
+    {
+        "access": serializers.CharField(required=False),
+        "refresh": serializers.CharField(required=False),
+        "mfa_required": serializers.BooleanField(required=False),
+        "mfa_token": serializers.CharField(required=False),
+    },
+)
+LOGIN_ANSWER_RESPONSE = OpenApiResponse(
+    LOGIN_ANSWER,
+    examples=[
+        OpenApiExample(
+            "tokens",
+            value={"access": EXAMPLE_ACCESS, "refresh": EXAMPLE_REFRESH},
+            response_only=True,
+        ),
+        OpenApiExample(
+            "second factor",
+            value={"mfa_required": True, "mfa_token": "IjhmNDE5YWZmIg:1tE3x0:Yp2v0n4h"},
+            response_only=True,
+        ),
+    ],
+)
+
 register_schema = extend_schema(
     tags=[AUTH_TAG],
     summary=_("Register a user"),
@@ -87,13 +112,15 @@ login_schema = extend_schema(
     summary=_("Log in"),
     description=_(
         "Returns an access and a refresh token. Repeated failures lock the account "
-        "for a while and answer 429 with the code account_locked_out."
+        "for a while and answer 429 with the code account_locked_out. A user with "
+        "two-factor authentication gets mfa_required and an mfa_token instead, for "
+        "POST /api/v1/auth/login/2fa/."
     ),
     request=LOGIN,
     parameters=[RETRY_AFTER_HEADER],
     examples=[request_example({"email": EXAMPLE_EMAIL, "password": EXAMPLE_PASSWORD})],
     responses={
-        200: TOKEN_PAIR_RESPONSE,
+        200: LOGIN_ANSWER_RESPONSE,
         **error_responses(
             "invalid", "no_active_account", "throttled", "account_locked_out"
         ),

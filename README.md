@@ -19,6 +19,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - [Email](#email)
 - [Audit log](#audit-log)
 - [Logging](#logging)
+- [Base models](#base-models)
 - [Dependencies](#dependencies)
 - [Tests and formatting](#tests-and-formatting)
 - [Troubleshooting](#troubleshooting)
@@ -38,10 +39,11 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **PostgreSQL 18** in Docker Compose, configured through variables.
 - **Custom user** that logs in with an email and has a random UUID as primary key.
 - **Account endpoints:** logout, the user's own profile in `/me/`, password change and reset by email, optional email verification, and every session closed when the password changes. Registration and reset don't reveal which emails have an account.
-- **Email** through any SMTP provider, configured with one URL; printed to the console while developing.
+- **Email** through any SMTP provider, configured with one URL, or through a provider's HTTP API with anymail; printed to the console while developing.
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
 - **OpenAPI schema and Swagger UI** for the frontend, open while developing and staff only in production.
 - **Roles** declared in code and applied as Django groups with `sync_roles`.
+- **Base models** with timestamps and an optional soft delete, for your own apps.
 - **Admin panel** to manage users and browse the audit log.
 - **Production image:** a `Dockerfile` with gunicorn and whitenoise, a health endpoint, and logs as text or JSON. See [DEPLOYMENT.md](DEPLOYMENT.md).
 - **English and Spanish:** the API messages, the emails and the admin follow the `Accept-Language` of each request.
@@ -359,6 +361,8 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `AXES_COOLOFF_MINUTES` | Django | Minutes the lockout lasts | `15` |
 | `AXES_LOCKOUT_PARAMETERS` | Django | What is locked: `username`, `ip_address`, `user_agent`, joined with `+` | `username+ip_address` |
 | `EMAIL_URL` | Django | Where emails go, as a URL. Empty: printed to the console. See [Email](#email) | *(empty)* |
+| `EMAIL_PROVIDER` | Django | anymail provider that sends the emails through its HTTP API, instead of `EMAIL_URL`. See [Sending through a provider's API](#sending-through-a-providers-api) | *(empty)* |
+| `ANYMAIL_*` | Django | Settings of that provider, such as `ANYMAIL_RESEND_API_KEY` | — |
 | `DEFAULT_FROM_EMAIL` | Django | Sender of the emails the project sends | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` closes `POST /api/v1/auth/register/` with `403`. See [Public registration](#public-registration) | `True` |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Frontend page the reset email links to, with `{uid}` and `{token}`. Required: without it, or without a marker, Django doesn't start. See [Password reset](#password-reset) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
@@ -408,7 +412,7 @@ Two details worth knowing:
 | Session and CSRF cookies | Sent over HTTP | `Secure`: HTTPS only |
 | HSTS | Off | `SECURE_HSTS_SECONDS`, `3600` by default |
 
-Django also checks the values copied from `.env.example`. If `SECRET_KEY`, `DB_PASSWORD` or `ADMIN_PASSWORD` still have the example value, `runserver`, `migrate` and `check` report it: a warning in `local` and `ci` (`core.W001` to `core.W003`) and an error that stops the command in `staging` and `prod` (`core.E001` to `core.E003`). A short `SECRET_KEY` is reported by Django itself (`security.W009`). In `staging` and `prod`, an `EMAIL_URL` that doesn't deliver emails (empty, console, file or memory) gets the warning `core.W004`: the password reset would print its links to the log and nobody would get them.
+Django also checks the values copied from `.env.example`. If `SECRET_KEY`, `DB_PASSWORD` or `ADMIN_PASSWORD` still have the example value, `runserver`, `migrate` and `check` report it: a warning in `local` and `ci` (`core.W001` to `core.W003`) and an error that stops the command in `staging` and `prod` (`core.E001` to `core.E003`). A short `SECRET_KEY` is reported by Django itself (`security.W009`). In `staging` and `prod`, an `EMAIL_URL` that doesn't deliver emails (empty, console, file or memory), or `EMAIL_PROVIDER=test` or `console`, gets the warning `core.W004`: the password reset would print its links to the log and nobody would get them. In every environment, an `EMAIL_PROVIDER` without the settings it needs stops the command with `core.E004`.
 
 Before deploying, run the same check the CI runs, with your production `.env` loaded:
 
@@ -933,6 +937,27 @@ send_templated_email("emails/welcome", user.email, {"name": user.first_name})
 
 The templates render in the active language, so `{% translate %}` and `{% blocktranslate %}` work as in any other template. They also escape HTML like any template: wrap `subject.txt` and `body.txt` in `{% autoescape off %}`, or a link with `&` arrives as `&amp;` in the plain text version. The email goes out in a separate thread once the database transaction commits: the request does not wait for the SMTP server, and nothing is sent if the transaction rolls back. A delivery error is logged under the `core.emails` logger with the template name, not the recipient. Each send waits up to 10 seconds for the server. If the process stops in that instant, that email is lost.
 
+### Sending through a provider's API
+
+Some providers prefer their HTTP API to SMTP, or don't offer SMTP at all. With [anymail](https://anymail.dev/), installed with the project, one variable picks the provider and the rest of the code doesn't change: `send_templated_email` and the account emails go out the same way.
+
+Leave `EMAIL_URL` empty, set `EMAIL_PROVIDER` and add the `ANYMAIL_*` variables of that provider. Each one becomes an entry of anymail's settings without the prefix: `ANYMAIL_RESEND_API_KEY` is `RESEND_API_KEY` in [anymail's docs](https://anymail.dev/en/stable/esps/).
+
+| Provider | `.env` |
+|---|---|
+| Resend | `EMAIL_PROVIDER=resend` · `ANYMAIL_RESEND_API_KEY=<api-key>` |
+| Mailgun | `EMAIL_PROVIDER=mailgun` · `ANYMAIL_MAILGUN_API_KEY=<api-key>` · in the EU, also `ANYMAIL_MAILGUN_API_URL=https://api.eu.mailgun.net/v3` |
+| Postmark | `EMAIL_PROVIDER=postmark` · `ANYMAIL_POSTMARK_SERVER_TOKEN=<server-token>` |
+| Brevo | `EMAIL_PROVIDER=brevo` · `ANYMAIL_BREVO_API_KEY=<api-key>` |
+| Amazon SES | `EMAIL_PROVIDER=amazon_ses` · install `boto3` (`uv add boto3`) and give it AWS credentials as usual (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, or the server's role) |
+
+- `EMAIL_URL` and `EMAIL_PROVIDER` can't be set together, and an unknown provider stops Django from starting.
+- If the provider is missing a setting, `runserver`, `migrate` and `check` stop with `core.E004` and name the setting. Its value is never shown.
+- `ANYMAIL_*` values are text, except `True` and `False`. Each send waits up to 10 seconds for the provider, as with SMTP; `ANYMAIL_REQUESTS_TIMEOUT` doesn't change it.
+- A delivery error from the provider is logged like an SMTP one, under `core.emails`.
+- anymail stopped supporting SendGrid: use its SMTP URL in `EMAIL_URL`, from the table above.
+- `EMAIL_PROVIDER=test` keeps the emails in `django.core.mail.outbox`, for tests.
+
 ## Audit log
 
 `security.middleware.AuditMiddleware` stores every `POST`, `PUT`, `PATCH` and `DELETE` in `AuditLog`: user, IP, user agent, method, path, the response status and the body. You can browse it in the admin under **Security › Audit Logs**.
@@ -1056,6 +1081,51 @@ The `security` logger records these events. Filter them by the `event` field:
 The email is the one sent, lowercased. Passwords and tokens are never logged, not even masked.
 
 django-axes writes its own lines in the `axes` logger, as plain text even with `LOG_FORMAT=json`. Most are `INFO`: `LOG_LEVEL=WARNING` leaves them out. The test suite logs a lot at `INFO`: the CI runs it with `LOG_LEVEL=ERROR`, and you can do the same in your `.env`.
+
+---
+
+## Base models
+
+`core.models` has two abstract models for your own apps. Inherit from one, the other or both.
+
+| Model | Adds |
+|---|---|
+| `TimestampedModel` | `created_at`, set once on creation, and `updated_at`, set on every `save()` |
+| `SoftDeleteModel` | `deleted_at`: `delete()` fills it in and keeps the row |
+
+```python
+from django.db import models
+from django.db.models import Q
+
+from core.models import SoftDeleteModel, TimestampedModel
+
+
+class Invoice(TimestampedModel, SoftDeleteModel):
+    number = models.CharField(max_length=20)
+
+    class Meta:
+        constraints = [
+            # Unique among the rows that are not deleted: a deleted invoice frees its number.
+            models.UniqueConstraint(
+                fields=["number"],
+                condition=Q(deleted_at__isnull=True),
+                name="unique_alive_invoice_number",
+            )
+        ]
+```
+
+| Call | Result |
+|---|---|
+| `Invoice.objects` | Only the rows that are not deleted. It is the default manager, so the admin and `get()` don't see the deleted ones either |
+| `Invoice.all_objects` | Every row. `.alive()` and `.deleted()` filter them |
+| `invoice.delete()` · `Invoice.objects.filter(...).delete()` | Fills in `deleted_at`. Answers `(count, {"app.Invoice": count})`, like Django's `delete()` |
+| `invoice.restore()` · `Invoice.all_objects.deleted().restore()` | Empties `deleted_at` |
+| `invoice.hard_delete()` · `Invoice.all_objects.filter(...).hard_delete()` | Deletes the rows from the database |
+| `invoice.is_deleted` | `True` when `deleted_at` has a value |
+
+- A plain `unique=True` keeps counting the deleted rows: a deleted invoice would block its number forever. Use a `UniqueConstraint` with `condition=Q(deleted_at__isnull=True)`, as above.
+- The soft delete does not cascade: the rows that point to a deleted one stay as they were. Following a `ForeignKey` forward still returns the deleted row (`payment.invoice`), because Django uses a manager that doesn't filter there; the reverse side (`customer.invoice_set`) hides it.
+- Deleting or restoring doesn't change `updated_at`.
 
 ---
 

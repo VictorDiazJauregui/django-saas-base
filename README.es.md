@@ -19,6 +19,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [Email](#email)
 - [Auditoría](#auditoría)
 - [Logs](#logs)
+- [Modelos base](#modelos-base)
 - [Dependencias](#dependencias)
 - [Tests y formato](#tests-y-formato)
 - [Solución de problemas](#solución-de-problemas)
@@ -38,10 +39,11 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **PostgreSQL 18** en Docker Compose, configurado por variables.
 - **Usuario personalizado** que inicia sesión con su email y tiene un UUID aleatorio como clave primaria.
 - **Endpoints de cuenta:** logout, el perfil propio en `/me/`, cambio y recuperación de contraseña por email, verificación de email opcional y cierre de todas las sesiones al cambiar la contraseña. El registro y la recuperación no revelan qué emails tienen cuenta.
-- **Email** por cualquier proveedor SMTP, configurado con una URL; en desarrollo se imprime en la consola.
+- **Email** por cualquier proveedor SMTP, configurado con una URL, o por la API HTTP del proveedor con anymail; en desarrollo se imprime en la consola.
 - **Auditoría:** cada request que modifica datos queda registrada, con los datos sensibles censurados.
 - **Esquema OpenAPI y Swagger UI** para el frontend, abiertos en desarrollo y solo para staff en producción.
 - **Roles** declarados en el código y aplicados como grupos de Django con `sync_roles`.
+- **Modelos base** con timestamps y borrado lógico opcional, para tus apps.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Imagen de producción:** un `Dockerfile` con gunicorn y whitenoise, un endpoint de health y logs en texto o JSON. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md).
 - **Inglés y español:** los mensajes de la API, los emails y el admin siguen el `Accept-Language` de cada request.
@@ -359,6 +361,8 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `AXES_COOLOFF_MINUTES` | Django | Minutos que dura el bloqueo | `15` |
 | `AXES_LOCKOUT_PARAMETERS` | Django | Qué se bloquea: `username`, `ip_address`, `user_agent`, unidos con `+` | `username+ip_address` |
 | `EMAIL_URL` | Django | A dónde van los emails, como URL. Vacía: se imprimen en la consola. Ver [Email](#email) | *(vacía)* |
+| `EMAIL_PROVIDER` | Django | Proveedor de anymail que manda los emails por su API HTTP, en lugar de `EMAIL_URL`. Ver [Envío por la API del proveedor](#envío-por-la-api-del-proveedor) | *(vacía)* |
+| `ANYMAIL_*` | Django | Configuración de ese proveedor, como `ANYMAIL_RESEND_API_KEY` | — |
 | `DEFAULT_FROM_EMAIL` | Django | Remitente de los emails que manda el proyecto | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` cierra `POST /api/v1/auth/register/` con `403`. Ver [Registro público](#registro-público) | `True` |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Página del frontend a la que apunta el email de recuperación, con `{uid}` y `{token}`. Obligatoria: sin ella, o sin uno de los marcadores, Django no arranca. Ver [Recuperación de contraseña](#recuperación-de-contraseña) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
@@ -408,7 +412,7 @@ Dos detalles que conviene saber:
 | Cookies de sesión y CSRF | Viajan por HTTP | `Secure`: solo HTTPS |
 | HSTS | Apagado | `SECURE_HSTS_SECONDS`, `3600` por defecto |
 
-Django también revisa los valores copiados de `.env.example`. Si `SECRET_KEY`, `DB_PASSWORD` o `ADMIN_PASSWORD` siguen con el valor del ejemplo, `runserver`, `migrate` y `check` lo informan: como aviso en `local` y `ci` (`core.W001` a `core.W003`) y como error que frena el comando en `staging` y `prod` (`core.E001` a `core.E003`). Una `SECRET_KEY` corta la informa Django mismo (`security.W009`). En `staging` y `prod`, un `EMAIL_URL` que no entrega emails (vacío, consola, archivo o memoria) recibe el aviso `core.W004`: la recuperación de contraseña imprimiría sus links en el log y no le llegarían a nadie.
+Django también revisa los valores copiados de `.env.example`. Si `SECRET_KEY`, `DB_PASSWORD` o `ADMIN_PASSWORD` siguen con el valor del ejemplo, `runserver`, `migrate` y `check` lo informan: como aviso en `local` y `ci` (`core.W001` a `core.W003`) y como error que frena el comando en `staging` y `prod` (`core.E001` a `core.E003`). Una `SECRET_KEY` corta la informa Django mismo (`security.W009`). En `staging` y `prod`, un `EMAIL_URL` que no entrega emails (vacío, consola, archivo o memoria), o `EMAIL_PROVIDER=test` o `console`, recibe el aviso `core.W004`: la recuperación de contraseña imprimiría sus links en el log y no le llegarían a nadie. En cualquier entorno, un `EMAIL_PROVIDER` sin la configuración que necesita frena el comando con `core.E004`.
 
 Antes de desplegar, corré el mismo chequeo que la CI, con el `.env` de producción cargado:
 
@@ -933,6 +937,27 @@ send_templated_email("emails/welcome", user.email, {"name": user.first_name})
 
 Las plantillas se renderizan en el idioma activo, así que `{% translate %}` y `{% blocktranslate %}` funcionan como en cualquier plantilla. También escapan HTML como cualquier plantilla: envolvé `subject.txt` y `body.txt` en `{% autoescape off %}`, o un link con `&` llega como `&amp;` en la versión de texto plano. El email sale en un hilo aparte cuando la transacción de la base hace commit: el request no espera al servidor SMTP, y si la transacción se revierte no se manda nada. Un error de envío queda en el log `core.emails` con el nombre de la plantilla, sin el destinatario. Cada envío espera hasta 10 segundos al servidor. Si el proceso se corta justo en ese momento, ese email se pierde.
 
+### Envío por la API del proveedor
+
+Algunos proveedores prefieren su API HTTP a SMTP, o directamente no ofrecen SMTP. Con [anymail](https://anymail.dev/), que se instala con el proyecto, una variable elige el proveedor y el resto del código no cambia: `send_templated_email` y los emails de cuenta salen igual.
+
+Dejá `EMAIL_URL` vacía, completá `EMAIL_PROVIDER` y agregá las variables `ANYMAIL_*` de ese proveedor. Cada una pasa a la configuración de anymail sin el prefijo: `ANYMAIL_RESEND_API_KEY` es `RESEND_API_KEY` en la [documentación de anymail](https://anymail.dev/en/stable/esps/).
+
+| Proveedor | `.env` |
+|---|---|
+| Resend | `EMAIL_PROVIDER=resend` · `ANYMAIL_RESEND_API_KEY=<api-key>` |
+| Mailgun | `EMAIL_PROVIDER=mailgun` · `ANYMAIL_MAILGUN_API_KEY=<api-key>` · en la UE, además `ANYMAIL_MAILGUN_API_URL=https://api.eu.mailgun.net/v3` |
+| Postmark | `EMAIL_PROVIDER=postmark` · `ANYMAIL_POSTMARK_SERVER_TOKEN=<server-token>` |
+| Brevo | `EMAIL_PROVIDER=brevo` · `ANYMAIL_BREVO_API_KEY=<api-key>` |
+| Amazon SES | `EMAIL_PROVIDER=amazon_ses` · instalá `boto3` (`uv add boto3`) y dale las credenciales de AWS como siempre (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, o el rol del servidor) |
+
+- `EMAIL_URL` y `EMAIL_PROVIDER` no pueden ir juntas, y un proveedor desconocido no deja arrancar a Django.
+- Si al proveedor le falta un dato, `runserver`, `migrate` y `check` se frenan con `core.E004` y nombran la variable. Su valor nunca se muestra.
+- Los valores de `ANYMAIL_*` son texto, salvo `True` y `False`. Cada envío espera hasta 10 segundos al proveedor, igual que con SMTP; `ANYMAIL_REQUESTS_TIMEOUT` no lo cambia.
+- Un error de envío del proveedor queda en el log igual que uno de SMTP, en `core.emails`.
+- anymail dejó de dar soporte a SendGrid: usá su URL SMTP en `EMAIL_URL`, de la tabla de arriba.
+- `EMAIL_PROVIDER=test` guarda los emails en `django.core.mail.outbox`, para tests.
+
 ## Auditoría
 
 `security.middleware.AuditMiddleware` guarda cada `POST`, `PUT`, `PATCH` y `DELETE` en `AuditLog`: usuario, IP, user agent, método, path, el status de la respuesta y el body. Se consulta en el admin, en **Security › Audit Logs**.
@@ -1056,6 +1081,51 @@ El logger `security` registra estos eventos. Se filtran por el campo `event`:
 El email es el que se mandó, en minúsculas. Las contraseñas y los tokens nunca se loguean, ni enmascarados.
 
 django-axes escribe sus propias líneas en el logger `axes`, en texto aunque `LOG_FORMAT=json`. La mayoría son `INFO`: `LOG_LEVEL=WARNING` las deja afuera. La suite de tests loguea mucho en `INFO`: la CI la corre con `LOG_LEVEL=ERROR`, y podés hacer lo mismo en tu `.env`.
+
+---
+
+## Modelos base
+
+`core.models` trae dos modelos abstractos para tus apps. Heredá de uno, del otro o de los dos.
+
+| Modelo | Agrega |
+|---|---|
+| `TimestampedModel` | `created_at`, que se fija al crear, y `updated_at`, que se actualiza en cada `save()` |
+| `SoftDeleteModel` | `deleted_at`: `delete()` lo completa y la fila queda en la base |
+
+```python
+from django.db import models
+from django.db.models import Q
+
+from core.models import SoftDeleteModel, TimestampedModel
+
+
+class Invoice(TimestampedModel, SoftDeleteModel):
+    number = models.CharField(max_length=20)
+
+    class Meta:
+        constraints = [
+            # Unique among the rows that are not deleted: a deleted invoice frees its number.
+            models.UniqueConstraint(
+                fields=["number"],
+                condition=Q(deleted_at__isnull=True),
+                name="unique_alive_invoice_number",
+            )
+        ]
+```
+
+| Llamada | Resultado |
+|---|---|
+| `Invoice.objects` | Solo las filas no borradas. Es el manager por defecto, así que el admin y `get()` tampoco ven las borradas |
+| `Invoice.all_objects` | Todas las filas. `.alive()` y `.deleted()` las filtran |
+| `invoice.delete()` · `Invoice.objects.filter(...).delete()` | Completa `deleted_at`. Responde `(cantidad, {"app.Invoice": cantidad})`, como el `delete()` de Django |
+| `invoice.restore()` · `Invoice.all_objects.deleted().restore()` | Vacía `deleted_at` |
+| `invoice.hard_delete()` · `Invoice.all_objects.filter(...).hard_delete()` | Borra las filas de la base |
+| `invoice.is_deleted` | `True` cuando `deleted_at` tiene valor |
+
+- Un `unique=True` común sigue contando las filas borradas: una factura borrada bloquearía su número para siempre. Usá un `UniqueConstraint` con `condition=Q(deleted_at__isnull=True)`, como arriba.
+- El borrado lógico no se propaga: las filas que apuntan a una borrada quedan como estaban. Seguir un `ForeignKey` hacia adelante sigue devolviendo la fila borrada (`payment.invoice`), porque ahí Django usa un manager que no filtra; el lado inverso (`customer.invoice_set`) la oculta.
+- Borrar o restaurar no cambia `updated_at`.
 
 ---
 

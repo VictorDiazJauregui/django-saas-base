@@ -90,6 +90,16 @@ docker compose --profile app up -d --build
 
 El servicio `app` lee el mismo `.env` (con `APP_ENV_FILE` usa otro archivo) y publica `APP_PORT`, el mismo puerto que `runserver`: corré uno o el otro.
 
+### Worker de webhooks
+
+Con `WEBHOOKS_ENABLED=True`, corré `deliver_webhooks` como un segundo proceso de la misma imagen, al lado de la app, con las mismas variables:
+
+```bash
+docker run -d --env-file .env.prod myproject-api python manage.py deliver_webhooks
+```
+
+Uno alcanza para la mayoría de los proyectos; sumá más si las entregas se acumulan. Si se corta en medio de un lote, esas entregas se vuelven a mandar cuando vence su reserva (el timeout por el tamaño del lote, unos minutos como mucho), así que los receptores tienen que ignorar un `Webhook-Id` que ya procesaron. Ver [Webhooks](README.es.md#webhooks).
+
 ---
 
 ## 5. Tareas programadas

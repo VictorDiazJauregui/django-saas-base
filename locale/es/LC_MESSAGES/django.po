@@ -53,6 +53,18 @@ msgstr "La API y la base de datos responden."
 msgid "The database does not answer."
 msgstr "La base de datos no responde."
 
+#: core/models.py:7
+msgid "created at"
+msgstr "creado el"
+
+#: core/models.py:8
+msgid "updated at"
+msgstr "actualizado el"
+
+#: core/models.py:40
+msgid "deleted at"
+msgstr "borrado el"
+
 #: core/settings.py:181
 msgid "English"
 msgstr "Inglés"

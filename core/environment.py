@@ -9,6 +9,7 @@ VALID_ENVIRONMENTS = DEVELOPMENT_ENVIRONMENTS + DEPLOYED_ENVIRONMENTS
 WILDCARD_HOST = "*"
 LINK_MARKERS = ("{uid}", "{token}")
 LINK_SCHEMES = ("http", "https")
+GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 
 
 def validate_environment(name):
@@ -184,3 +185,14 @@ def validate_totp_encryption_key(key, enabled):
             'print(Fernet.generate_key().decode())"'
         ) from error
     return key
+
+
+# Another URL lets the local tests sign their own Google tokens. In staging and prod it would let
+# whoever controls that URL log in as anyone.
+def validate_google_jwks_url(url, environment):
+    if url == GOOGLE_JWKS_URL or not is_deployed(environment):
+        return url
+    raise ImproperlyConfigured(
+        f"GOOGLE_JWKS_URL can only be changed in local and ci. Remove it from .env to use "
+        f"{GOOGLE_JWKS_URL}."
+    )

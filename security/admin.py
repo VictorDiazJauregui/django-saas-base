@@ -17,7 +17,7 @@ from .forms import (
     TwoFactorAdminAuthenticationForm,
 )
 from .middleware import AUDITED_METHODS
-from .models import ApiKey, AuditLog, TotpDevice
+from .models import ApiKey, AuditLog, ExternalIdentity, TotpDevice
 from .security_events import log_two_factor_changed
 from .two_factor import disable_totp_for
 
@@ -44,6 +44,18 @@ PERMISSION_FIELDS = (
     "groups",
     "user_permissions",
 )
+
+
+# Read only: a link is created by logging in with the provider and removed with the user.
+class ExternalIdentityInline(admin.TabularInline):
+    model = ExternalIdentity
+    fields = ("provider", "subject", "created_at")
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(User)
@@ -78,6 +90,10 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
     )
+
+    # Only on an existing user: the add form has no links to show.
+    def get_inlines(self, request, obj):
+        return (ExternalIdentityInline,) if obj is not None else ()
 
     # One subquery for the whole page instead of a query per row.
     def get_queryset(self, request):

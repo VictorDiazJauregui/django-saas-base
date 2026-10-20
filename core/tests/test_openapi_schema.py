@@ -20,6 +20,7 @@ EXPECTED_OPERATIONS = {
     ("post", f"{AUTH}/verify-email/"),
     ("post", f"{AUTH}/verify-email/resend/"),
     ("post", f"{AUTH}/login/2fa/"),
+    ("post", f"{AUTH}/google/"),
     ("get", f"{AUTH}/2fa/"),
     ("post", f"{AUTH}/2fa/setup/"),
     ("post", f"{AUTH}/2fa/confirm/"),

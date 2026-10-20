@@ -42,6 +42,17 @@ ERROR_EXAMPLES = {
         "The login expired or is not valid. Log in again.",
         {},
     ),
+    "invalid_google_token": (401, "The Google sign-in is not valid. Try again.", {}),
+    "account_exists": (
+        409,
+        "An account with this email already exists. Log in with its password.",
+        {},
+    ),
+    "google_unavailable": (
+        503,
+        "Google can't be reached right now. Try again in a moment.",
+        {},
+    ),
     "too_many_code_attempts": (
         429,
         "Too many wrong codes. Expected available in 300 seconds.",

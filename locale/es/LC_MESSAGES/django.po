@@ -589,3 +589,160 @@ msgstr "Primero empiece la activación."
 #: security/two_factor_serializers.py:13
 msgid "Send either otp or recovery_code."
 msgstr "Envíe otp o recovery_code, no los dos."
+
+#: security/google_login.py:26
+msgid "The Google sign-in is not valid. Try again."
+msgstr "El inicio de sesión con Google no es válido. Intente de nuevo."
+
+#: security/google_login.py:32
+msgid "Google can't be reached right now. Try again in a moment."
+msgstr "No se puede conectar con Google en este momento. Intente de nuevo en un momento."
+
+#: security/google_login.py:38
+msgid "No active account found with the given credentials"
+msgstr "La combinación de credenciales no tiene una cuenta activa"
+
+#: security/google_login_views.py:23
+msgid "Log in with Google"
+msgstr "Iniciar sesión con Google"
+
+#: security/google_login_views.py:25
+msgid "Takes the id_token Google Identity Services gives the frontend and answers like the email login: the tokens, or the second-factor challenge. A new email creates an account only while public registration is open. Answers 404 unless GOOGLE_CLIENT_IDS is set."
+msgstr "Recibe el id_token que Google Identity Services le da al frontend y responde como el login por email: los tokens, o el desafío del segundo factor. Un email nuevo crea una cuenta solo mientras el registro público esté abierto. Responde 404 salvo que GOOGLE_CLIENT_IDS esté configurada."
+
+#: security/models.py:230
+msgid "provider"
+msgstr "proveedor"
+
+#: security/models.py:231
+msgid "subject"
+msgstr "identificador"
+
+#: security/models.py:234
+msgid "external identity"
+msgstr "identidad externa"
+
+#: security/models.py:235
+msgid "external identities"
+msgstr "identidades externas"
+
+#: webhooks/admin.py:39 webhooks/models.py:14
+msgid "events"
+msgstr "eventos"
+
+#: webhooks/admin.py:90 webhooks/models.py:47
+msgid "payload"
+msgstr "payload"
+
+#: webhooks/admin.py:96
+msgid "Retry now"
+msgstr "Reintentar ahora"
+
+#: webhooks/admin.py:102
+#, python-format
+msgid "%(count)d delivery queued."
+msgid_plural "%(count)d deliveries queued."
+msgstr[0] "%(count)d entrega encolada."
+msgstr[1] "%(count)d entregas encoladas."
+msgstr[2] "%(count)d entregas encoladas."
+
+#: webhooks/apps.py:7
+msgid "Webhooks"
+msgstr "Webhooks"
+
+#: webhooks/models.py:10
+msgid "URL"
+msgstr "URL"
+
+#: webhooks/models.py:11
+msgid "description"
+msgstr "descripción"
+
+#: webhooks/models.py:15
+msgid "Event names separated by commas, such as user.registered."
+msgstr "Nombres de eventos separados por comas, como user.registered."
+
+#: webhooks/models.py:18
+msgid "secret"
+msgstr "secreto"
+
+#: webhooks/models.py:19
+msgid "active"
+msgstr "activo"
+
+#: webhooks/models.py:22
+msgid "webhook endpoint"
+msgstr "endpoint de webhook"
+
+#: webhooks/models.py:23
+msgid "webhook endpoints"
+msgstr "endpoints de webhook"
+
+#: webhooks/models.py:35
+msgid "Pending"
+msgstr "Pendiente"
+
+#: webhooks/models.py:36
+msgid "Succeeded"
+msgstr "Exitosa"
+
+#: webhooks/models.py:37
+msgid "Failed"
+msgstr "Fallida"
+
+#: webhooks/models.py:44
+msgid "endpoint"
+msgstr "endpoint"
+
+#: webhooks/models.py:46
+msgid "event"
+msgstr "evento"
+
+#: webhooks/models.py:51
+msgid "attempts"
+msgstr "intentos"
+
+#: webhooks/models.py:52
+msgid "next attempt at"
+msgstr "próximo intento"
+
+#: webhooks/models.py:54
+msgid "last status code"
+msgstr "último status"
+
+#: webhooks/models.py:56
+msgid "last error"
+msgstr "último error"
+
+#: webhooks/models.py:57
+msgid "delivered at"
+msgstr "entregada el"
+
+#: webhooks/models.py:60
+msgid "webhook delivery"
+msgstr "entrega de webhook"
+
+#: webhooks/models.py:61
+msgid "webhook deliveries"
+msgstr "entregas de webhook"
+
+#: webhooks/templates/admin/webhooks/webhookendpoint/created.html:4
+msgid "Webhook endpoint created"
+msgstr "Endpoint de webhook creado"
+
+#: webhooks/templates/admin/webhooks/webhookendpoint/created.html:16
+#, python-format
+msgid "The endpoint %(url)s is ready. Copy its signing secret now: it won't be shown again."
+msgstr "El endpoint %(url)s está listo. Copie ahora su secreto de firma: no se vuelve a mostrar."
+
+#: webhooks/templates/admin/webhooks/webhookendpoint/created.html:20
+msgid "The receiver checks the Webhook-Signature header with it."
+msgstr "El receptor verifica con él el header Webhook-Signature."
+
+#: webhooks/templates/admin/webhooks/webhookendpoint/created.html:21
+msgid "Back to the webhook endpoints"
+msgstr "Volver a los endpoints de webhook"
+
+#: security/google_login.py:40
+msgid "An account with this email already exists. Log in with its password."
+msgstr "Ya existe una cuenta con este email. Inicie sesión con su contraseña."

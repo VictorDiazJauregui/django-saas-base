@@ -17,6 +17,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [Varios proyectos en la misma máquina](#varios-proyectos-en-la-misma-máquina)
 - [API](#api)
 - [Email](#email)
+- [Webhooks](#webhooks)
 - [Auditoría](#auditoría)
 - [Logs](#logs)
 - [Modelos base](#modelos-base)
@@ -45,6 +46,8 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **Roles** declarados en el código y aplicados como grupos de Django con `sync_roles`.
 - **API keys** para llamadas entre servidores, creadas y revocadas desde el admin. Apagadas por defecto.
 - **Autenticación en dos pasos** con app de autenticación y códigos de recuperación, en la API y en el admin. Apagada por defecto.
+- **Login con Google** que responde como el login por email. Apagado por defecto.
+- **Webhooks** firmados con HMAC, con reintentos y registro de entregas en el admin. Apagados por defecto.
 - **Modelos base** con timestamps y borrado lógico opcional, para tus apps.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Imagen de producción:** un `Dockerfile` con gunicorn y whitenoise, un endpoint de health y logs en texto o JSON. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md).
@@ -372,6 +375,12 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `TOTP_ENABLED` | Django | `True` deja a los usuarios sumar un segundo factor con una app de autenticación. Ver [Autenticación en dos pasos](#autenticación-en-dos-pasos) | `False` |
 | `TOTP_ENCRYPTION_KEY` | Django | Clave Fernet que cifra los secretos del segundo factor. Obligatoria con `TOTP_ENABLED=True`; no se cambia nunca | *(vacía)* |
 | `TOTP_ISSUER` | Django | Nombre que muestra la app de autenticación junto a la cuenta | *(vacía)* |
+| `GOOGLE_CLIENT_IDS` | Django | Client IDs de OAuth de tus frontends, separados por comas. Vacía apaga el login con Google. Ver [Login con Google](#login-con-google) | *(vacía)* |
+| `GOOGLE_JWKS_URL` | Django | De dónde se leen las claves públicas de Google. Solo para tests, en `local` y `ci` | `https://www.googleapis.com/oauth2/v3/certs` |
+| `WEBHOOKS_ENABLED` | Django | `True` guarda una entrega por cada evento suscrito. Ver [Webhooks](#webhooks) | `False` |
+| `WEBHOOK_MAX_ATTEMPTS` | Django | Intentos por entrega antes de marcarla como fallida | `5` |
+| `WEBHOOK_TIMEOUT_SECONDS` | Django | Segundos de espera de la respuesta del receptor | `10` |
+| `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` permite receptores en direcciones privadas. Vacía: permitidos solo en `local` y `ci` | *(vacía)* |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Página del frontend a la que apunta el email de recuperación, con `{uid}` y `{token}`. Obligatoria: sin ella, o sin uno de los marcadores, Django no arranca. Ver [Recuperación de contraseña](#recuperación-de-contraseña) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
 | `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutos que dura un link de recuperación | `60` |
 | `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: un registro público entra recién después de seguir el link de su email. Ver [Verificación de email](#verificación-de-email) | `False` |
@@ -769,6 +778,35 @@ Las dos rutas comparten `THROTTLE_VERIFY_EMAIL_RATE` (5 por hora por defecto, po
 
 Con `REQUIRE_EMAIL_VERIFICATION=False` (el default), la cuenta nueva entra enseguida. El `201` esconde el duplicado, pero probar el login con la contraseña recién usada igual muestra si la cuenta era nueva: para cerrar eso hace falta la verificación activa.
 
+### Login con Google
+
+El frontend muestra el botón de Google y obtiene un `id_token`; la API lo verifica y responde como el login por email. Apagado por defecto: completá `GOOGLE_CLIENT_IDS` para encenderlo.
+
+1. En la [consola de Google Cloud](https://console.cloud.google.com/apis/credentials), creá un **OAuth client ID** de tipo **Web application** y agregá el origen de tu frontend (`http://localhost:3000` mientras desarrollás) en **Authorized JavaScript origins**. La pantalla de consentimiento pide solo el nombre de la app y un email de soporte.
+2. Poné el client ID en `.env`: `GOOGLE_CLIENT_IDS=1234-abc.apps.googleusercontent.com`. Varios, separados por comas, si una web y una app móvil tienen el suyo. El client secret no se usa.
+3. En el frontend, cargá [Google Identity Services](https://developers.google.com/identity/gsi/web/guides/overview) con el mismo client ID, en su modo de callback de JavaScript (no `data-login_uri`, que manda un formulario al servidor y necesita su propio chequeo de CSRF), y mandá el `credential` que devuelve:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/google/ -H "Content-Type: application/json" -d '{"id_token": "<credential>"}'
+   ```
+
+La respuesta es la de `POST /api/v1/auth/login/`: `{"access", "refresh"}`, o `{"mfa_required", "mfa_token"}` para un usuario con [autenticación en dos pasos](#autenticación-en-dos-pasos).
+
+| Caso | Resultado |
+|---|---|
+| Cuenta de Google usada antes | Entra a la cuenta con la que quedó vinculada, aunque su email de Google haya cambiado |
+| Email de una cuenta existente, de Gmail o de un dominio de Google Workspace | La vincula y entra. Si esa cuenta no estaba verificada, queda verificada y **pierde su contraseña y sus sesiones**: quien registró el email antes que su dueño ya no puede usarlas |
+| Email de una cuenta existente, de cualquier otro dominio | `409` `account_exists`: Google [solo garantiza](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token) las direcciones de Gmail y de Workspace, así que la cuenta no se vincula. El usuario entra con su contraseña |
+| Email nuevo | Crea una cuenta verificada, sin contraseña, con el nombre que manda Google. Solo con `ALLOW_PUBLIC_REGISTRATION=True`; si no, `403` |
+| Cuenta desactivada | `401` `no_active_account` |
+| Token con otra firma, vencido, de otro client ID, de otro emisor o con un email que Google no verificó | `401` `invalid_google_token` |
+| No se pueden descargar las claves de Google | `503` `google_unavailable` |
+
+- La API verifica la firma con las claves públicas de Google, que descarga de `https://www.googleapis.com/oauth2/v3/certs` y guarda una hora, y necesita llegar a esa dirección.
+- Una cuenta creada con Google no tiene contraseña y entra solo con Google: la [recuperación de contraseña](#recuperación-de-contraseña) no le manda nada a una cuenta sin contraseña. Un admin puede ponerle una desde el admin.
+- La ruta comparte el límite `THROTTLE_LOGIN_RATE` con el login por email, y la auditoría censura `id_token`.
+- `GOOGLE_JWKS_URL` reemplaza la dirección de Google, para que los tests firmen sus propios tokens. Solo en `local` y `ci`: en `staging` y `prod` Django no arranca con otro valor.
+
 ### Autenticación en dos pasos
 
 Cada usuario puede sumar un segundo factor con una app de autenticación (Google Authenticator, 1Password, Authy y similares). Apagado por defecto: `TOTP_ENABLED=True` lo enciende y necesita `TOTP_ENCRYPTION_KEY`, la clave con la que se cifran los secretos:
@@ -1030,6 +1068,68 @@ Dejá `EMAIL_URL` vacía, completá `EMAIL_PROVIDER` y agregá las variables `AN
 - Un error de envío del proveedor queda en el log igual que uno de SMTP, en `core.emails`.
 - anymail dejó de dar soporte a SendGrid: usá su URL SMTP en `EMAIL_URL`, de la tabla de arriba.
 - `EMAIL_PROVIDER=test` guarda los emails en `django.core.mail.outbox`, para tests.
+
+## Webhooks
+
+Los webhooks avisan a otros sistemas que algo pasó en tu app: un `HTTP POST` con un body JSON firmado a las URLs suscritas a ese evento. Apagados por defecto: `WEBHOOKS_ENABLED=True` los enciende.
+
+**Suscribir.** En el admin, en **Webhook endpoints**, agregá la URL del receptor y los eventos que quiere, separados por comas. La página siguiente muestra el secreto de firma, una sola vez: dáselo a quien maneja el receptor.
+
+**Emitir.** La base emite `user.registered` (registro público y cuentas nuevas desde Google) y `user.email_verified`, con `{"user_id": "...", "email": "..."}`. Tu código emite sus propios eventos así:
+
+```python
+from webhooks.events import emit_webhook_event
+
+emit_webhook_event("invoice.paid", {"invoice_id": invoice.pk, "total": str(invoice.total)})
+```
+
+Los datos tienen que ser JSON. La entrega se guarda en la misma transacción de la base que tu cambio: si el cambio se revierte, no se manda nada, y si hace commit, se entrega aunque el proceso se corte justo después.
+
+**Enviar.** Un proceso aparte manda las entregas:
+
+```bash
+python manage.py deliver_webhooks            # corre hasta que se lo detiene, revisa cada 5 segundos
+python manage.py deliver_webhooks --once     # un lote y termina
+```
+
+Corrélo al lado de la app (ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md#worker-de-webhooks)). Pueden correr varios a la vez: cada uno toma las entregas que manda, y una entrega nunca se manda dos veces al mismo tiempo.
+
+**Lo que recibe el receptor:**
+
+```http
+POST /hooks HTTP/1.1
+Content-Type: application/json
+Webhook-Id: 42
+Webhook-Event: invoice.paid
+Webhook-Signature: t=1792488000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
+
+{"id":"42","event":"invoice.paid","created_at":"2026-10-20T10:40:00.123456+00:00","data":{"invoice_id":7,"total":"120.00"}}
+```
+
+`v1` es el HMAC-SHA256 de `"<t>.<body>"` con el secreto. El receptor lo verifica y rechaza los timestamps viejos, así una request capturada no se puede repetir:
+
+```python
+import hashlib
+import hmac
+import time
+
+
+def is_valid_webhook(secret, signature_header, body, tolerance=300):
+    parts = dict(part.split("=", 1) for part in signature_header.split(","))
+    signed = f"{parts['t']}.".encode() + body
+    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    fresh = abs(time.time() - int(parts["t"])) <= tolerance
+    return fresh and hmac.compare_digest(expected, parts["v1"])
+```
+
+`Webhook-Id` es el mismo en todos los reintentos de una entrega: usalo para ignorar una que ya procesaste.
+
+**Reintentos.** Una respuesta `2xx` marca la entrega como exitosa. Cualquier otra, un redirect incluido, o ninguna respuesta en `WEBHOOK_TIMEOUT_SECONDS`, se reintenta después de 1 minuto, 5 minutos, 30 minutos, 2 horas y 12 horas aproximadamente, hasta `WEBHOOK_MAX_ATTEMPTS` intentos en total (5 por defecto). Después queda como fallida. El admin lista cada entrega con su estado, intentos y última respuesta, y **Reintentar ahora** vuelve a encolar las seleccionadas.
+
+- Los redirects no se siguen: un `3xx` cuenta como fallo.
+- En `staging` y `prod` se rechazan las URLs que resuelven a una dirección privada, de loopback o link-local, en el admin y al enviar, para que un endpoint no haga que el servidor llame a su propia red o al servicio de metadatos de la nube. `WEBHOOK_ALLOW_PRIVATE_URLS=True` las permite, por ejemplo para un receptor dentro de la misma red. En `local` y `ci` se permiten.
+- Con `WEBHOOKS_ENABLED=False`, `emit_webhook_event` no guarda nada. Las entregas ya guardadas las sigue mandando `deliver_webhooks`.
+- La tabla de entregas solo crece. Borrá las filas viejas cada tanto, por ejemplo con `WebhookDelivery.objects.filter(created_at__lt=...).delete()` en una tarea programada.
 
 ## Auditoría
 

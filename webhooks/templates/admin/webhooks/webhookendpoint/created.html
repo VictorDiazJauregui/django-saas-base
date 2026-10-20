@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block title %}{% translate "Webhook endpoint created" %} | {{ site_title|default:_("Django site admin") }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+  &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; {{ endpoint.url }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p>{% blocktranslate with url=endpoint.url trimmed %}
+    The endpoint {{ url }} is ready. Copy its signing secret now: it won't be shown again.
+  {% endblocktranslate %}</p>
+  <p><code id="webhook-secret">{{ endpoint.secret }}</code></p>
+  <p>{% translate "The receiver checks the Webhook-Signature header with it." %}</p>
+  <p><a class="button" href="{% url opts|admin_urlname:'changelist' %}">{% translate "Back to the webhook endpoints" %}</a></p>
+</div>
+{% endblock %}

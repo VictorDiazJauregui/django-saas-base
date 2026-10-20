@@ -214,3 +214,30 @@ class RecoveryCode(models.Model):
 
     def __str__(self):
         return str(self.user)
+
+
+# A Google account is recognized by its subject, which never changes; the email can.
+class ExternalIdentity(TimestampedModel):
+    GOOGLE = "google"
+    PROVIDERS = [(GOOGLE, "Google")]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="external_identities",
+        verbose_name=_("User"),
+    )
+    provider = models.CharField(_("provider"), max_length=20, choices=PROVIDERS)
+    subject = models.CharField(_("subject"), max_length=255)
+
+    class Meta:
+        verbose_name = _("external identity")
+        verbose_name_plural = _("external identities")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "subject"], name="unique_external_identity"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_provider_display()}: {self.user}"

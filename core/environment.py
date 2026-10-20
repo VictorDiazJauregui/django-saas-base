@@ -1,5 +1,6 @@
 from urllib.parse import urlsplit
 
+from cryptography.fernet import Fernet
 from django.core.exceptions import ImproperlyConfigured
 
 DEVELOPMENT_ENVIRONMENTS = ("local", "ci")
@@ -8,6 +9,7 @@ VALID_ENVIRONMENTS = DEVELOPMENT_ENVIRONMENTS + DEPLOYED_ENVIRONMENTS
 WILDCARD_HOST = "*"
 LINK_MARKERS = ("{uid}", "{token}")
 LINK_SCHEMES = ("http", "https")
+GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 
 
 def validate_environment(name):
@@ -169,3 +171,28 @@ def parse_lockout_combination(raw_combination):
 # their combination: "username+ip_address,user_agent" -> [["username", "ip_address"], "user_agent"].
 def parse_lockout_parameters(raw_value):
     return [parse_lockout_combination(part) for part in raw_value.split(",")]
+
+
+def validate_totp_encryption_key(key, enabled):
+    if not enabled:
+        return key
+    try:
+        Fernet(key)
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            "TOTP_ENABLED=True needs TOTP_ENCRYPTION_KEY, a Fernet key. Generate one with: "
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
+        ) from error
+    return key
+
+
+# Another URL lets the local tests sign their own Google tokens. In staging and prod it would let
+# whoever controls that URL log in as anyone.
+def validate_google_jwks_url(url, environment):
+    if url == GOOGLE_JWKS_URL or not is_deployed(environment):
+        return url
+    raise ImproperlyConfigured(
+        f"GOOGLE_JWKS_URL can only be changed in local and ci. Remove it from .env to use "
+        f"{GOOGLE_JWKS_URL}."
+    )

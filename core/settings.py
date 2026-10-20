@@ -2,6 +2,7 @@
 Django settings for the saas_boilerplate project.
 """
 
+import os
 from datetime import timedelta
 from importlib.util import find_spec
 from pathlib import Path
@@ -9,7 +10,13 @@ from pathlib import Path
 import environ
 from django.utils.translation import gettext_lazy as _
 
+from core.email_provider import (
+    build_provider_backend,
+    read_anymail_settings,
+    validate_email_provider,
+)
 from core.environment import (
+    GOOGLE_JWKS_URL,
     default_allowed_hosts,
     is_deployed,
     parse_lockout_parameters,
@@ -22,8 +29,10 @@ from core.environment import (
     validate_debug,
     validate_environment,
     validate_frontend_link_url,
+    validate_google_jwks_url,
     validate_optional_frontend_link_url,
     validate_page_sizes,
+    validate_totp_encryption_key,
     validate_trusted_proxy_count,
 )
 from core.logging_config import build_logging_config, parse_log_format, parse_log_level
@@ -74,6 +83,7 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     # Local apps
     "security.apps.SecurityConfig",
+    "webhooks.apps.WebhooksConfig",
 ]
 
 OPTIONAL_DEVELOPMENT_APPS = ["django_extensions"]
@@ -241,10 +251,17 @@ AUDIT_PAYLOAD_MAX_BYTES = parse_non_negative_int(
 # --- Email ---
 # One URL configures any SMTP provider; empty or missing prints the emails to the console.
 # Lowercase so the parsed URL, password included, does not become a setting of its own.
-email_url_settings = env.email_url_config(
-    env.str("EMAIL_URL", default="") or "consolemail://"
+email_url = env.str("EMAIL_URL", default="")
+email_url_settings = env.email_url_config(email_url or "consolemail://")
+# A provider name sends through its HTTP API with anymail instead of SMTP.
+EMAIL_PROVIDER = validate_email_provider(
+    env.str("EMAIL_PROVIDER", default=""), email_url
 )
-EMAIL_BACKEND = email_url_settings["EMAIL_BACKEND"]
+EMAIL_BACKEND = (
+    build_provider_backend(EMAIL_PROVIDER)
+    if EMAIL_PROVIDER
+    else email_url_settings["EMAIL_BACKEND"]
+)
 EMAIL_HOST = email_url_settings["EMAIL_HOST"] or "localhost"
 EMAIL_PORT = email_url_settings["EMAIL_PORT"] or 25
 EMAIL_HOST_USER = email_url_settings["EMAIL_HOST_USER"] or ""
@@ -254,6 +271,9 @@ EMAIL_USE_SSL = email_url_settings.get("EMAIL_USE_SSL", False)
 # Without a timeout, an SMTP server that stops answering blocks the sender forever.
 EMAIL_TIMEOUT = 10
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+# Every ANYMAIL_* variable, without the prefix. The timeout stays the SMTP one: a text value
+# from the environment would break the HTTP client.
+ANYMAIL = {**read_anymail_settings(os.environ), "REQUESTS_TIMEOUT": EMAIL_TIMEOUT}
 EMAIL_SEND_IN_BACKGROUND = True
 
 # --- CORS ---
@@ -267,6 +287,44 @@ CORS_EXPOSE_HEADERS = ["Retry-After"]
 # --- Registration ---
 # False closes POST /api/v1/auth/register/; the admin and create_admin_auto still add users.
 ALLOW_PUBLIC_REGISTRATION = env.bool("ALLOW_PUBLIC_REGISTRATION", default=True)
+
+# --- API keys ---
+# True lets other servers authenticate with "Authorization: Api-Key <key>". Keys are created
+# in the admin and act as the user they belong to.
+API_KEYS_ENABLED = env.bool("API_KEYS_ENABLED", default=False)
+
+# --- Two-factor authentication ---
+# True lets each user turn on a second factor with an authenticator app. The secrets are
+# encrypted with their own key, so rotating SECRET_KEY doesn't lock anyone out.
+TOTP_ENABLED = env.bool("TOTP_ENABLED", default=False)
+TOTP_ENCRYPTION_KEY = validate_totp_encryption_key(
+    env.str("TOTP_ENCRYPTION_KEY", default=""), TOTP_ENABLED
+)
+# The name the authenticator app shows next to the account. Empty shows only the email.
+TOTP_ISSUER = env.str("TOTP_ISSUER", default="")
+
+# --- Login with Google ---
+# The OAuth client ids of your frontends, from the Google Cloud console. Empty turns it off.
+GOOGLE_CLIENT_IDS = env.list("GOOGLE_CLIENT_IDS", default=[])
+GOOGLE_JWKS_URL = validate_google_jwks_url(
+    env.str("GOOGLE_JWKS_URL", default=GOOGLE_JWKS_URL), ENVIRONMENT
+)
+
+# --- Webhooks ---
+# True stores a delivery for each event an active endpoint subscribes to; the deliver_webhooks
+# command sends them. Private addresses are refused in staging and prod unless allowed here.
+WEBHOOKS_ENABLED = env.bool("WEBHOOKS_ENABLED", default=False)
+WEBHOOK_MAX_ATTEMPTS = parse_positive_int(
+    "WEBHOOK_MAX_ATTEMPTS", env.str("WEBHOOK_MAX_ATTEMPTS", default="5")
+)
+WEBHOOK_TIMEOUT_SECONDS = parse_positive_int(
+    "WEBHOOK_TIMEOUT_SECONDS", env.str("WEBHOOK_TIMEOUT_SECONDS", default="10")
+)
+WEBHOOK_ALLOW_PRIVATE_URLS = parse_optional_bool(
+    "WEBHOOK_ALLOW_PRIVATE_URLS",
+    env.str("WEBHOOK_ALLOW_PRIVATE_URLS", default=""),
+    default=not is_deployed(ENVIRONMENT),
+)
 
 # --- Roles ---
 # The roles sync_roles applies as Django groups. Point it at your own module to declare them.
@@ -310,11 +368,13 @@ THROTTLE_RATE_DEFAULTS = {
     "register": "5/h",
     "password": "5/h",
     "verify_email": "5/h",
+    "mfa": "5/10m",
 }
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "security.authentication.ApiKeyAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_THROTTLE_CLASSES": (

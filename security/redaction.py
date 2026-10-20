@@ -10,6 +10,7 @@ SENSITIVE_KEY_FRAGMENTS = (
     "authorization",
     "credential",
     "privatekey",
+    "recoverycode",
 )
 # Short words match whole keys only: as fragments, "pin" would also hide "shipping".
 SENSITIVE_KEYS = frozenset(

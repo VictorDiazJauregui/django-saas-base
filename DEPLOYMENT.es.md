@@ -90,22 +90,34 @@ docker compose --profile app up -d --build
 
 El servicio `app` lee el mismo `.env` (con `APP_ENV_FILE` usa otro archivo) y publica `APP_PORT`, el mismo puerto que `runserver`: corré uno o el otro.
 
+### Worker de webhooks
+
+Con `WEBHOOKS_ENABLED=True`, corré `deliver_webhooks` como un segundo proceso de la misma imagen, al lado de la app, con las mismas variables:
+
+```bash
+docker run -d --env-file .env.prod myproject-api python manage.py deliver_webhooks
+```
+
+Uno alcanza para la mayoría de los proyectos; sumá más si las entregas se acumulan. Si se corta en medio de un lote, esas entregas se vuelven a mandar cuando vence su reserva (el timeout por el tamaño del lote, unos minutos como mucho), así que los receptores tienen que ignorar un `Webhook-Id` que ya procesaron. Ver [Webhooks](README.es.md#webhooks).
+
 ---
 
 ## 5. Tareas programadas
 
-Dos comandos limpian tablas que solo crecen. Corrélos una vez por día:
+Tres comandos limpian tablas que solo crecen. Corrélos una vez por día:
 
 | Comando | Qué borra |
 |---|---|
 | `python manage.py purge_audit_logs --older-than 90 --no-input` | Los registros de auditoría de más de 90 días. Ver [Purga de registros viejos](README.es.md#purga-de-registros-viejos) |
 | `python manage.py flushexpiredtokens` | Los refresh tokens ya vencidos, de las tablas de la blacklist |
+| `python manage.py purge_webhook_deliveries --older-than 30 --no-input` | Las entregas de webhooks que terminaron hace más de 30 días. Las pendientes se conservan. Ver [Purga de entregas viejas](README.es.md#purga-de-entregas-viejas) |
 
 Con cron, en un servidor con Docker:
 
 ```text
 0 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py purge_audit_logs --older-than 90 --no-input
 30 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py flushexpiredtokens
+45 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py purge_webhook_deliveries --older-than 30 --no-input
 ```
 
 Con Kubernetes, un `CronJob` por comando:

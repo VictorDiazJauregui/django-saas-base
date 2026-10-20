@@ -1,5 +1,14 @@
 from django.urls import path
 
+from .google_login_views import GoogleLoginView
+from .two_factor_views import (
+    LoginTwoFactorView,
+    RecoveryCodesView,
+    TotpConfirmView,
+    TotpDisableView,
+    TotpSetupView,
+    TotpStatusView,
+)
 from .views import (
     CustomLoginView,
     EmailVerificationView,
@@ -19,6 +28,13 @@ urlpatterns = [
     path("register/", UserRegisterView.as_view(), name="register"),
     path("login/", CustomLoginView.as_view(), name="login"),
     path("login/refresh/", TokenPairRefreshView.as_view(), name="token_refresh"),
+    path("login/2fa/", LoginTwoFactorView.as_view(), name="login_two_factor"),
+    path("google/", GoogleLoginView.as_view(), name="google_login"),
+    path("2fa/", TotpStatusView.as_view(), name="totp_status"),
+    path("2fa/setup/", TotpSetupView.as_view(), name="totp_setup"),
+    path("2fa/confirm/", TotpConfirmView.as_view(), name="totp_confirm"),
+    path("2fa/disable/", TotpDisableView.as_view(), name="totp_disable"),
+    path("2fa/recovery-codes/", RecoveryCodesView.as_view(), name="recovery_codes"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("me/", ProfileView.as_view(), name="me"),
     path("password/change/", PasswordChangeView.as_view(), name="password_change"),

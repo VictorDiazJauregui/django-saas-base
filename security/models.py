@@ -4,7 +4,10 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.db.models.functions import Lower
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+from core.models import TimestampedModel
 
 
 class UserManager(BaseUserManager):
@@ -131,3 +134,110 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.method} {self.path} by {self.user or 'Anonymous'} at {self.timestamp}"
+
+
+# Only the hash is stored: whoever reads the table, or a backup, can't use the keys. The
+# prefix is the lookup index and what the admin shows to tell keys apart.
+class ApiKey(TimestampedModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="api_keys",
+        verbose_name=_("User"),
+    )
+    name = models.CharField(_("name"), max_length=100)
+    prefix = models.CharField(_("prefix"), max_length=12, unique=True, editable=False)
+    key_hash = models.CharField(max_length=64, editable=False)
+    expires_at = models.DateTimeField(_("expires at"), null=True, blank=True)
+    revoked_at = models.DateTimeField(
+        _("revoked at"), null=True, blank=True, editable=False
+    )
+    last_used_at = models.DateTimeField(
+        _("last used at"), null=True, blank=True, editable=False
+    )
+
+    class Meta:
+        verbose_name = _("API key")
+        verbose_name_plural = _("API keys")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.prefix})"
+
+    def is_usable(self):
+        if not self.user.is_active or self.revoked_at is not None:
+            return False
+        return self.expires_at is None or self.expires_at > timezone.now()
+
+
+class TotpDevice(TimestampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="totp_device",
+        verbose_name=_("User"),
+    )
+    encrypted_secret = models.TextField(editable=False)
+    # Null until the first code confirms that the app has the secret.
+    confirmed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # The 30-second step of the last code accepted: a code is never accepted twice.
+    last_used_step = models.PositiveBigIntegerField(
+        null=True, blank=True, editable=False
+    )
+
+    class Meta:
+        verbose_name = _("authenticator app")
+        verbose_name_plural = _("authenticator apps")
+
+    def __str__(self):
+        return str(self.user)
+
+
+class RecoveryCode(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="recovery_codes",
+        verbose_name=_("User"),
+    )
+    code_hash = models.CharField(max_length=64, editable=False)
+    used_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = _("recovery code")
+        verbose_name_plural = _("recovery codes")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "code_hash"], name="unique_recovery_code_per_user"
+            )
+        ]
+
+    def __str__(self):
+        return str(self.user)
+
+
+# A Google account is recognized by its subject, which never changes; the email can.
+class ExternalIdentity(TimestampedModel):
+    GOOGLE = "google"
+    PROVIDERS = [(GOOGLE, "Google")]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="external_identities",
+        verbose_name=_("User"),
+    )
+    provider = models.CharField(_("provider"), max_length=20, choices=PROVIDERS)
+    subject = models.CharField(_("subject"), max_length=255)
+
+    class Meta:
+        verbose_name = _("external identity")
+        verbose_name_plural = _("external identities")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "subject"], name="unique_external_identity"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_provider_display()}: {self.user}"

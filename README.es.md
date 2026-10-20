@@ -17,8 +17,10 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [Varios proyectos en la misma máquina](#varios-proyectos-en-la-misma-máquina)
 - [API](#api)
 - [Email](#email)
+- [Webhooks](#webhooks)
 - [Auditoría](#auditoría)
 - [Logs](#logs)
+- [Modelos base](#modelos-base)
 - [Dependencias](#dependencias)
 - [Tests y formato](#tests-y-formato)
 - [Solución de problemas](#solución-de-problemas)
@@ -38,10 +40,15 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **PostgreSQL 18** en Docker Compose, configurado por variables.
 - **Usuario personalizado** que inicia sesión con su email y tiene un UUID aleatorio como clave primaria.
 - **Endpoints de cuenta:** logout, el perfil propio en `/me/`, cambio y recuperación de contraseña por email, verificación de email opcional y cierre de todas las sesiones al cambiar la contraseña. El registro y la recuperación no revelan qué emails tienen cuenta.
-- **Email** por cualquier proveedor SMTP, configurado con una URL; en desarrollo se imprime en la consola.
+- **Email** por cualquier proveedor SMTP, configurado con una URL, o por la API HTTP del proveedor con anymail; en desarrollo se imprime en la consola.
 - **Auditoría:** cada request que modifica datos queda registrada, con los datos sensibles censurados.
 - **Esquema OpenAPI y Swagger UI** para el frontend, abiertos en desarrollo y solo para staff en producción.
 - **Roles** declarados en el código y aplicados como grupos de Django con `sync_roles`.
+- **API keys** para llamadas entre servidores, creadas y revocadas desde el admin. Apagadas por defecto.
+- **Autenticación en dos pasos** con app de autenticación y códigos de recuperación, en la API y en el admin. Apagada por defecto.
+- **Login con Google** que responde como el login por email. Apagado por defecto.
+- **Webhooks** firmados con HMAC, con reintentos y registro de entregas en el admin. Apagados por defecto.
+- **Modelos base** con timestamps y borrado lógico opcional, para tus apps.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Imagen de producción:** un `Dockerfile` con gunicorn y whitenoise, un endpoint de health y logs en texto o JSON. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md).
 - **Inglés y español:** los mensajes de la API, los emails y el admin siguen el `Accept-Language` de cada request.
@@ -347,6 +354,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `THROTTLE_LOGIN_RATE` | Django | Límite de `POST /api/v1/auth/login/` | `10/10m` |
 | `THROTTLE_REGISTER_RATE` | Django | Límite de `POST /api/v1/auth/register/` | `5/h` |
 | `THROTTLE_VERIFY_EMAIL_RATE` | Django | Límite de `verify-email/` y `verify-email/resend/` | `5/h` |
+| `THROTTLE_MFA_RATE` | Django | Límite de `login/2fa/` y de las rutas `2fa/` que verifican un código | `5/10m` |
 | `THROTTLE_PASSWORD_RATE` | Django | Límite del cambio y de la recuperación de contraseña, y de los endpoints que agregues con `throttle_scope = "password"` | `5/h` |
 | `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header. La usan los límites de requests y la auditoría. Un número negativo no deja arrancar Django | `0` |
 | `CACHE_URL` | Django | Cache donde se cuentan los límites | `locmemcache://` |
@@ -359,8 +367,20 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `AXES_COOLOFF_MINUTES` | Django | Minutos que dura el bloqueo | `15` |
 | `AXES_LOCKOUT_PARAMETERS` | Django | Qué se bloquea: `username`, `ip_address`, `user_agent`, unidos con `+` | `username+ip_address` |
 | `EMAIL_URL` | Django | A dónde van los emails, como URL. Vacía: se imprimen en la consola. Ver [Email](#email) | *(vacía)* |
+| `EMAIL_PROVIDER` | Django | Proveedor de anymail que manda los emails por su API HTTP, en lugar de `EMAIL_URL`. Ver [Envío por la API del proveedor](#envío-por-la-api-del-proveedor) | *(vacía)* |
+| `ANYMAIL_*` | Django | Configuración de ese proveedor, como `ANYMAIL_RESEND_API_KEY` | — |
 | `DEFAULT_FROM_EMAIL` | Django | Remitente de los emails que manda el proyecto | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` cierra `POST /api/v1/auth/register/` con `403`. Ver [Registro público](#registro-público) | `True` |
+| `API_KEYS_ENABLED` | Django | `True` acepta `Authorization: Api-Key <key>`, con keys creadas en el admin. Ver [API keys](#api-keys) | `False` |
+| `TOTP_ENABLED` | Django | `True` deja a los usuarios sumar un segundo factor con una app de autenticación. Ver [Autenticación en dos pasos](#autenticación-en-dos-pasos) | `False` |
+| `TOTP_ENCRYPTION_KEY` | Django | Clave Fernet que cifra los secretos del segundo factor. Obligatoria con `TOTP_ENABLED=True`; no se cambia nunca | *(vacía)* |
+| `TOTP_ISSUER` | Django | Nombre que muestra la app de autenticación junto a la cuenta | *(vacía)* |
+| `GOOGLE_CLIENT_IDS` | Django | Client IDs de OAuth de tus frontends, separados por comas. Vacía apaga el login con Google. Ver [Login con Google](#login-con-google) | *(vacía)* |
+| `GOOGLE_JWKS_URL` | Django | De dónde se leen las claves públicas de Google. Solo para tests, en `local` y `ci` | `https://www.googleapis.com/oauth2/v3/certs` |
+| `WEBHOOKS_ENABLED` | Django | `True` guarda una entrega por cada evento suscrito. Ver [Webhooks](#webhooks) | `False` |
+| `WEBHOOK_MAX_ATTEMPTS` | Django | Intentos por entrega antes de marcarla como fallida | `5` |
+| `WEBHOOK_TIMEOUT_SECONDS` | Django | Segundos de espera de la respuesta del receptor | `10` |
+| `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` permite receptores en direcciones privadas. Vacía: permitidos solo en `local` y `ci` | *(vacía)* |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Página del frontend a la que apunta el email de recuperación, con `{uid}` y `{token}`. Obligatoria: sin ella, o sin uno de los marcadores, Django no arranca. Ver [Recuperación de contraseña](#recuperación-de-contraseña) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
 | `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutos que dura un link de recuperación | `60` |
 | `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: un registro público entra recién después de seguir el link de su email. Ver [Verificación de email](#verificación-de-email) | `False` |
@@ -408,7 +428,7 @@ Dos detalles que conviene saber:
 | Cookies de sesión y CSRF | Viajan por HTTP | `Secure`: solo HTTPS |
 | HSTS | Apagado | `SECURE_HSTS_SECONDS`, `3600` por defecto |
 
-Django también revisa los valores copiados de `.env.example`. Si `SECRET_KEY`, `DB_PASSWORD` o `ADMIN_PASSWORD` siguen con el valor del ejemplo, `runserver`, `migrate` y `check` lo informan: como aviso en `local` y `ci` (`core.W001` a `core.W003`) y como error que frena el comando en `staging` y `prod` (`core.E001` a `core.E003`). Una `SECRET_KEY` corta la informa Django mismo (`security.W009`). En `staging` y `prod`, un `EMAIL_URL` que no entrega emails (vacío, consola, archivo o memoria) recibe el aviso `core.W004`: la recuperación de contraseña imprimiría sus links en el log y no le llegarían a nadie.
+Django también revisa los valores copiados de `.env.example`. Si `SECRET_KEY`, `DB_PASSWORD` o `ADMIN_PASSWORD` siguen con el valor del ejemplo, `runserver`, `migrate` y `check` lo informan: como aviso en `local` y `ci` (`core.W001` a `core.W003`) y como error que frena el comando en `staging` y `prod` (`core.E001` a `core.E003`). Una `SECRET_KEY` corta la informa Django mismo (`security.W009`). En `staging` y `prod`, un `EMAIL_URL` que no entrega emails (vacío, consola, archivo o memoria), o `EMAIL_PROVIDER=test` o `console`, recibe el aviso `core.W004`: la recuperación de contraseña imprimiría sus links en el log y no le llegarían a nadie. En cualquier entorno, un `EMAIL_PROVIDER` sin la configuración que necesita frena el comando con `core.E004`.
 
 Antes de desplegar, corré el mismo chequeo que la CI, con el `.env` de producción cargado:
 
@@ -758,6 +778,77 @@ Las dos rutas comparten `THROTTLE_VERIFY_EMAIL_RATE` (5 por hora por defecto, po
 
 Con `REQUIRE_EMAIL_VERIFICATION=False` (el default), la cuenta nueva entra enseguida. El `201` esconde el duplicado, pero probar el login con la contraseña recién usada igual muestra si la cuenta era nueva: para cerrar eso hace falta la verificación activa.
 
+### Login con Google
+
+El frontend muestra el botón de Google y obtiene un `id_token`; la API lo verifica y responde como el login por email. Apagado por defecto: completá `GOOGLE_CLIENT_IDS` para encenderlo.
+
+1. En la [consola de Google Cloud](https://console.cloud.google.com/apis/credentials), creá un **OAuth client ID** de tipo **Web application** y agregá el origen de tu frontend (`http://localhost:3000` mientras desarrollás) en **Authorized JavaScript origins**. La pantalla de consentimiento pide solo el nombre de la app y un email de soporte.
+2. Poné el client ID en `.env`: `GOOGLE_CLIENT_IDS=1234-abc.apps.googleusercontent.com`. Varios, separados por comas, si una web y una app móvil tienen el suyo. El client secret no se usa.
+3. En el frontend, cargá [Google Identity Services](https://developers.google.com/identity/gsi/web/guides/overview) con el mismo client ID, en su modo de callback de JavaScript (no `data-login_uri`, que manda un formulario al servidor y necesita su propio chequeo de CSRF), y mandá el `credential` que devuelve:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/auth/google/ -H "Content-Type: application/json" -d '{"id_token": "<credential>"}'
+   ```
+
+La respuesta es la de `POST /api/v1/auth/login/`: `{"access", "refresh"}`, o `{"mfa_required", "mfa_token"}` para un usuario con [autenticación en dos pasos](#autenticación-en-dos-pasos).
+
+| Caso | Resultado |
+|---|---|
+| Cuenta de Google usada antes | Entra a la cuenta con la que quedó vinculada, aunque su email de Google haya cambiado |
+| Email de una cuenta existente, de Gmail o de un dominio de Google Workspace | La vincula y entra. Si esa cuenta no estaba verificada, queda verificada y **pierde su contraseña y sus sesiones**: quien registró el email antes que su dueño ya no puede usarlas |
+| Email de una cuenta existente, de cualquier otro dominio | `409` `account_exists`: Google [solo garantiza](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token) las direcciones de Gmail y de Workspace, así que la cuenta no se vincula. El usuario entra con su contraseña |
+| Email nuevo | Crea una cuenta verificada, sin contraseña, con el nombre que manda Google. Solo con `ALLOW_PUBLIC_REGISTRATION=True`; si no, `403` |
+| Cuenta desactivada | `401` `no_active_account` |
+| Token con otra firma, vencido, de otro client ID, de otro emisor o con un email que Google no verificó | `401` `invalid_google_token` |
+| No se pueden descargar las claves de Google | `503` `google_unavailable` |
+
+- La API verifica la firma con las claves públicas de Google, que descarga de `https://www.googleapis.com/oauth2/v3/certs` y guarda una hora, y necesita llegar a esa dirección.
+- Una cuenta creada con Google no tiene contraseña y entra solo con Google: la [recuperación de contraseña](#recuperación-de-contraseña) no le manda nada a una cuenta sin contraseña. Un admin puede ponerle una desde el admin.
+- La ruta comparte el límite `THROTTLE_LOGIN_RATE` con el login por email, y la auditoría censura `id_token`.
+- `GOOGLE_JWKS_URL` reemplaza la dirección de Google, para que los tests firmen sus propios tokens. Solo en `local` y `ci`: en `staging` y `prod` Django no arranca con otro valor.
+
+### Autenticación en dos pasos
+
+Cada usuario puede sumar un segundo factor con una app de autenticación (Google Authenticator, 1Password, Authy y similares). Apagado por defecto: `TOTP_ENABLED=True` lo enciende y necesita `TOTP_ENCRYPTION_KEY`, la clave con la que se cifran los secretos:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Guardá esa clave con el resto de los secretos y no la cambies: los secretos cifrados con la anterior no se pueden leer, y esos usuarios no pueden entrar hasta que un admin les apague el segundo factor. `TOTP_ISSUER` es el nombre que muestra la app junto a la cuenta (vacía: solo el email).
+
+**Activarla** (con el access token):
+
+| Ruta | Body | Respuesta |
+|---|---|---|
+| `GET /api/v1/auth/2fa/` | — | `200` `{"enabled": false, "recovery_codes_left": 0}` |
+| `POST /api/v1/auth/2fa/setup/` | — | `200` `{"secret": "...", "otpauth_uri": "otpauth://totp/..."}`. El frontend dibuja el QR con `otpauth_uri`. No cambia nada hasta el paso siguiente |
+| `POST /api/v1/auth/2fa/confirm/` | `{"otp": "492039"}` | `200` `{"recovery_codes": ["3f9a-07c1-b2e4-8d56", ...]}`: 10 códigos, que se muestran solo acá |
+| `POST /api/v1/auth/2fa/recovery-codes/` | `{"otp": "..."}` o `{"recovery_code": "..."}` | `200` con 10 códigos nuevos; los anteriores dejan de servir |
+| `POST /api/v1/auth/2fa/disable/` | `{"password": "...", "otp": "..."}` o con `recovery_code` | `204` |
+
+**Iniciar sesión.** Un usuario sin segundo factor recibe los tokens de `POST /api/v1/auth/login/` como siempre. Uno con segundo factor recibe esto:
+
+```json
+{"mfa_required": true, "mfa_token": "IjhmNDE5YWZmIg:1tE3x0:Yp2v0n4h..."}
+```
+
+y termina con `POST /api/v1/auth/login/2fa/` y `{"mfa_token": "...", "otp": "492039"}` (o `"recovery_code"` en lugar de `"otp"`), que responde el `{"access": "...", "refresh": "..."}` de siempre. El `mfa_token` sirve 5 minutos.
+
+| Respuesta | Cuándo |
+|---|---|
+| `400` con `fields.otp` o `fields.recovery_code` | Código incorrecto, un código ya usado, o los dos campos o ninguno |
+| `401` `invalid_mfa_token` | El `mfa_token` venció o fue alterado, o mientras tanto el usuario fue desactivado o apagó el segundo factor |
+| `409` `totp_already_enabled` / `totp_not_enabled` | `setup/` con el segundo factor activo; `disable/` o `recovery-codes/` con él apagado |
+| `429` `too_many_code_attempts` | 5 códigos incorrectos en 5 minutos para ese usuario, desde cualquier lugar. Hay que esperar `Retry-After` segundos |
+| `429` `throttled` | `THROTTLE_MFA_RATE` (5 cada 10 minutos por IP) para `login/2fa/`, `confirm/`, `disable/` y `recovery-codes/` |
+
+- Un código sirve una sola vez, y se aceptan los de los 30 segundos anteriores y posteriores al actual, para celulares con el reloj un poco corrido.
+- Los códigos de recuperación sirven una vez cada uno e ignoran mayúsculas, guiones y espacios.
+- **El admin** también pide el código: su formulario de login suma el campo "Código de autenticación", que acepta un código de la app o uno de recuperación. La lista de usuarios muestra la columna "Dos pasos", y la acción **Apagar la autenticación en dos pasos** es para quien perdió el celular y los códigos.
+- La auditoría censura `otp`, `recovery_code`, `mfa_token` y `secret`. El secreto se guarda cifrado, y los códigos de recuperación como hashes SHA-256.
+- Con `TOTP_ENABLED=False` las rutas `2fa/` y `login/2fa/` responden `404`, el formulario del admin no tiene el campo del código y a nadie se le pide segundo factor. Los dispositivos quedan en la base para cuando se encienda de nuevo.
+
 ### Límites de requests
 
 El login admite 10 requests cada 10 minutos; el registro, el cambio y la recuperación de contraseña y la verificación de email, 5 por hora cada uno. Se cuentan por IP del cliente, salvo el cambio de contraseña, que se cuenta por usuario. La request siguiente recibe `429` hasta que el período libera un lugar, con la espera en segundos en el header `Retry-After` y en `detail`:
@@ -771,7 +862,7 @@ Cuenta cada request, sin importar el resultado: una contraseña correcta despué
 Dos cosas para configurar antes de producción:
 
 - **Detrás de un proxy**, poné en `TRUSTED_PROXY_COUNT` la cantidad de proxies que agregan su entrada a `X-Forwarded-For`. Con `0`, todas las requests parecen venir del proxy y todos los clientes comparten un mismo límite. Un número mayor al real deja que el cliente elija su propia IP.
-- **Con varios procesos** (workers de gunicorn, más de un servidor), la cache por defecto es por proceso y cada uno cuenta por su lado: 4 workers admiten 40 logins cada 10 minutos. Apuntá `CACHE_URL` a Redis (`redis://host:6379/0`) y sumá el paquete `redis` al proyecto.
+- **Con varios procesos** (workers de gunicorn, más de un servidor), la cache por defecto es por proceso y cada uno cuenta por su lado: 4 workers admiten 40 logins cada 10 minutos, y los 5 códigos incorrectos del segundo factor pasan a ser 20. Apuntá `CACHE_URL` a Redis (`redis://host:6379/0`) y sumá el paquete `redis` al proyecto.
 
 ### Bloqueo de cuenta
 
@@ -892,6 +983,30 @@ python manage.py sync_roles
 - Lo que se cambie en el admin sobre un rol declarado se pierde en la siguiente corrida: hay que editar `core/roles.py`.
 - La base no declara ningún rol. Para tenerlos en otro lado, apuntá `ROLE_DEFINITIONS` de `core/settings.py` a tu propio dict.
 
+### API keys
+
+Para otro servidor que llama a la API sin que inicie sesión una persona: un sistema de facturación, un cron de otro proyecto, la integración de un socio. Apagado por defecto; `API_KEYS_ENABLED=True` lo enciende.
+
+1. En el admin, en **API keys**, agregá una: elegí el usuario con el que actúa y un nombre, y si querés una fecha de vencimiento.
+2. La página siguiente muestra la key, una sola vez. No se guarda: la base conserva solo su hash SHA-256 y los primeros 12 caracteres (el prefijo), que el admin lista para distinguir una key de otra.
+3. El otro servidor la manda en cada request:
+
+   ```bash
+   curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Api-Key <key>"
+   ```
+
+   En PowerShell:
+
+   ```powershell
+   Invoke-RestMethod -Uri http://localhost:8000/api/v1/auth/me/ -Headers @{ Authorization = "Api-Key <key>" }
+   ```
+
+- La key hace exactamente lo que puede hacer su usuario: los mismos permisos, roles y límites de requests. Dale a cada integración un usuario propio, solo con los roles que necesita, en lugar de la cuenta de una persona.
+- Una key revocada o vencida, una key de un usuario desactivado o un header mal formado reciben `401` con `{"code": "invalid_api_key", "detail": "Invalid API key.", "fields": {}}`.
+- Para revocar, seleccioná las keys en el admin y ejecutá **Revocar las API keys seleccionadas**. Rige desde el próximo request. Una key no se edita: se crea una nueva y se revoca la vieja.
+- El admin muestra cuándo se usó cada key por última vez. La auditoría registra los requests a nombre del usuario de la key, y el header nunca se guarda.
+- Con `API_KEYS_ENABLED=False`, un header `Api-Key` se ignora y el request recibe el `401` de siempre. Las keys quedan en la base y vuelven a funcionar si se enciende de nuevo.
+
 ### CORS
 
 Un navegador solo deja que un frontend en otro dominio o puerto llame a la API si la API permite ese origen. Los orígenes van en `CORS_ALLOWED_ORIGINS`, cada uno con su esquema y su puerto y sin `/` final:
@@ -933,6 +1048,106 @@ send_templated_email("emails/welcome", user.email, {"name": user.first_name})
 
 Las plantillas se renderizan en el idioma activo, así que `{% translate %}` y `{% blocktranslate %}` funcionan como en cualquier plantilla. También escapan HTML como cualquier plantilla: envolvé `subject.txt` y `body.txt` en `{% autoescape off %}`, o un link con `&` llega como `&amp;` en la versión de texto plano. El email sale en un hilo aparte cuando la transacción de la base hace commit: el request no espera al servidor SMTP, y si la transacción se revierte no se manda nada. Un error de envío queda en el log `core.emails` con el nombre de la plantilla, sin el destinatario. Cada envío espera hasta 10 segundos al servidor. Si el proceso se corta justo en ese momento, ese email se pierde.
 
+### Envío por la API del proveedor
+
+Algunos proveedores prefieren su API HTTP a SMTP, o directamente no ofrecen SMTP. Con [anymail](https://anymail.dev/), que se instala con el proyecto, una variable elige el proveedor y el resto del código no cambia: `send_templated_email` y los emails de cuenta salen igual.
+
+Dejá `EMAIL_URL` vacía, completá `EMAIL_PROVIDER` y agregá las variables `ANYMAIL_*` de ese proveedor. Cada una pasa a la configuración de anymail sin el prefijo: `ANYMAIL_RESEND_API_KEY` es `RESEND_API_KEY` en la [documentación de anymail](https://anymail.dev/en/stable/esps/).
+
+| Proveedor | `.env` |
+|---|---|
+| Resend | `EMAIL_PROVIDER=resend` · `ANYMAIL_RESEND_API_KEY=<api-key>` |
+| Mailgun | `EMAIL_PROVIDER=mailgun` · `ANYMAIL_MAILGUN_API_KEY=<api-key>` · en la UE, además `ANYMAIL_MAILGUN_API_URL=https://api.eu.mailgun.net/v3` |
+| Postmark | `EMAIL_PROVIDER=postmark` · `ANYMAIL_POSTMARK_SERVER_TOKEN=<server-token>` |
+| Brevo | `EMAIL_PROVIDER=brevo` · `ANYMAIL_BREVO_API_KEY=<api-key>` |
+| Amazon SES | `EMAIL_PROVIDER=amazon_ses` · instalá `boto3` (`uv add boto3`) y dale las credenciales de AWS como siempre (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, o el rol del servidor) |
+
+- `EMAIL_URL` y `EMAIL_PROVIDER` no pueden ir juntas, y un proveedor desconocido no deja arrancar a Django.
+- Si al proveedor le falta un dato, `runserver`, `migrate` y `check` se frenan con `core.E004` y nombran la variable. Su valor nunca se muestra.
+- Los valores de `ANYMAIL_*` son texto, salvo `True` y `False`. Cada envío espera hasta 10 segundos al proveedor, igual que con SMTP; `ANYMAIL_REQUESTS_TIMEOUT` no lo cambia.
+- Un error de envío del proveedor queda en el log igual que uno de SMTP, en `core.emails`.
+- anymail dejó de dar soporte a SendGrid: usá su URL SMTP en `EMAIL_URL`, de la tabla de arriba.
+- `EMAIL_PROVIDER=test` guarda los emails en `django.core.mail.outbox`, para tests.
+
+## Webhooks
+
+Los webhooks avisan a otros sistemas que algo pasó en tu app: un `HTTP POST` con un body JSON firmado a las URLs suscritas a ese evento. Apagados por defecto: `WEBHOOKS_ENABLED=True` los enciende.
+
+**Suscribir.** En el admin, en **Webhook endpoints**, agregá la URL del receptor y los eventos que quiere, separados por comas. La página siguiente muestra el secreto de firma, una sola vez: dáselo a quien maneja el receptor.
+
+**Emitir.** La base emite `user.registered` (registro público y cuentas nuevas desde Google) y `user.email_verified`, con `{"user_id": "...", "email": "..."}`. Tu código emite sus propios eventos así:
+
+```python
+from webhooks.events import emit_webhook_event
+
+emit_webhook_event("invoice.paid", {"invoice_id": invoice.pk, "total": str(invoice.total)})
+```
+
+Los datos tienen que ser JSON. La entrega se guarda en la misma transacción de la base que tu cambio: si el cambio se revierte, no se manda nada, y si hace commit, se entrega aunque el proceso se corte justo después.
+
+**Enviar.** Un proceso aparte manda las entregas:
+
+```bash
+python manage.py deliver_webhooks            # corre hasta que se lo detiene, revisa cada 5 segundos
+python manage.py deliver_webhooks --once     # un lote y termina
+```
+
+Corrélo al lado de la app (ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md#worker-de-webhooks)). Pueden correr varios a la vez: cada uno toma las entregas que manda, y una entrega nunca se manda dos veces al mismo tiempo.
+
+**Lo que recibe el receptor:**
+
+```http
+POST /hooks HTTP/1.1
+Content-Type: application/json
+Webhook-Id: 42
+Webhook-Event: invoice.paid
+Webhook-Signature: t=1792488000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
+
+{"id":"42","event":"invoice.paid","created_at":"2026-10-20T10:40:00.123456+00:00","data":{"invoice_id":7,"total":"120.00"}}
+```
+
+`v1` es el HMAC-SHA256 de `"<t>.<body>"` con el secreto. El receptor lo verifica y rechaza los timestamps viejos, así una request capturada no se puede repetir:
+
+```python
+import hashlib
+import hmac
+import time
+
+
+def is_valid_webhook(secret, signature_header, body, tolerance=300):
+    parts = dict(part.split("=", 1) for part in signature_header.split(","))
+    signed = f"{parts['t']}.".encode() + body
+    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    fresh = abs(time.time() - int(parts["t"])) <= tolerance
+    return fresh and hmac.compare_digest(expected, parts["v1"])
+```
+
+`Webhook-Id` es el mismo en todos los reintentos de una entrega: usalo para ignorar una que ya procesaste.
+
+**Reintentos.** Una respuesta `2xx` marca la entrega como exitosa. Cualquier otra, un redirect incluido, o ninguna respuesta en `WEBHOOK_TIMEOUT_SECONDS`, se reintenta después de 1 minuto, 5 minutos, 30 minutos, 2 horas y 12 horas aproximadamente, hasta `WEBHOOK_MAX_ATTEMPTS` intentos en total (5 por defecto). Después queda como fallida. El admin lista cada entrega con su estado, intentos y última respuesta, y **Reintentar ahora** vuelve a encolar las seleccionadas.
+
+- Los redirects no se siguen: un `3xx` cuenta como fallo.
+- En `staging` y `prod` se rechazan las URLs que resuelven a una dirección privada, de loopback o link-local, en el admin y al enviar, para que un endpoint no haga que el servidor llame a su propia red o al servicio de metadatos de la nube. `WEBHOOK_ALLOW_PRIVATE_URLS=True` las permite, por ejemplo para un receptor dentro de la misma red. En `local` y `ci` se permiten.
+- Con `WEBHOOKS_ENABLED=False`, `emit_webhook_event` no guarda nada. Las entregas ya guardadas las sigue mandando `deliver_webhooks`.
+- La tabla de entregas solo crece: las viejas se borran con `purge_webhook_deliveries`.
+
+### Purga de entregas viejas
+
+`purge_webhook_deliveries` borra las entregas que terminaron, exitosas o fallidas, hace más de una cantidad de días. Funciona como [`purge_audit_logs`](#purga-de-registros-viejos), con las mismas opciones:
+
+```bash
+python manage.py purge_webhook_deliveries --older-than 30
+```
+
+```text
+About to delete 812 finished webhook deliveries, from 2026-08-02 to 2026-09-19 inclusive.
+Continue? [y/N]
+```
+
+- Las entregas pendientes no se borran nunca, aunque sean viejas: todavía se tienen que mandar.
+- La edad se cuenta desde que la entrega terminó, no desde que se creó. Una entrega creada hace meses y reintentada ayer desde el admin se conserva.
+- `--dry-run` muestra la cantidad y el rango, y `--no-input` borra sin preguntar, para las tareas programadas. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md#5-tareas-programadas).
+
 ## Auditoría
 
 `security.middleware.AuditMiddleware` guarda cada `POST`, `PUT`, `PATCH` y `DELETE` en `AuditLog`: usuario, IP, user agent, método, path, el status de la respuesta y el body. Se consulta en el admin, en **Security › Audit Logs**.
@@ -972,7 +1187,7 @@ Los valores cuya clave parece una credencial se guardan como `[REDACTED]`, a cua
 
 | Regla | Claves |
 |---|---|
-| Contiene | `password`, `passwd`, `token`, `secret`, `apikey`, `authorization`, `credential`, `privatekey` |
+| Contiene | `password`, `passwd`, `token`, `secret`, `apikey`, `authorization`, `credential`, `privatekey`, `recoverycode` |
 | Es exactamente | `otp`, `pin`, `cvv`, `cvc`, `cardnumber`, `ssn`, `access`, `refresh` |
 
 Las palabras cortas solo coinciden con la clave entera: como fragmento, `pin` también ocultaría `shipping`. Para claves propias del proyecto, listalas en `AUDIT_EXTRA_SENSITIVE_KEYS`. Coinciden con la clave entera después de la misma normalización: `AUDIT_EXTRA_SENSITIVE_KEYS=tax-id,iban` censura `tax_id`, `taxId` e `IBAN`, pero no `tax_id_type`.
@@ -1056,6 +1271,51 @@ El logger `security` registra estos eventos. Se filtran por el campo `event`:
 El email es el que se mandó, en minúsculas. Las contraseñas y los tokens nunca se loguean, ni enmascarados.
 
 django-axes escribe sus propias líneas en el logger `axes`, en texto aunque `LOG_FORMAT=json`. La mayoría son `INFO`: `LOG_LEVEL=WARNING` las deja afuera. La suite de tests loguea mucho en `INFO`: la CI la corre con `LOG_LEVEL=ERROR`, y podés hacer lo mismo en tu `.env`.
+
+---
+
+## Modelos base
+
+`core.models` trae dos modelos abstractos para tus apps. Heredá de uno, del otro o de los dos.
+
+| Modelo | Agrega |
+|---|---|
+| `TimestampedModel` | `created_at`, que se fija al crear, y `updated_at`, que se actualiza en cada `save()` |
+| `SoftDeleteModel` | `deleted_at`: `delete()` lo completa y la fila queda en la base |
+
+```python
+from django.db import models
+from django.db.models import Q
+
+from core.models import SoftDeleteModel, TimestampedModel
+
+
+class Invoice(TimestampedModel, SoftDeleteModel):
+    number = models.CharField(max_length=20)
+
+    class Meta:
+        constraints = [
+            # Unique among the rows that are not deleted: a deleted invoice frees its number.
+            models.UniqueConstraint(
+                fields=["number"],
+                condition=Q(deleted_at__isnull=True),
+                name="unique_alive_invoice_number",
+            )
+        ]
+```
+
+| Llamada | Resultado |
+|---|---|
+| `Invoice.objects` | Solo las filas no borradas. Es el manager por defecto, así que el admin y `get()` tampoco ven las borradas |
+| `Invoice.all_objects` | Todas las filas. `.alive()` y `.deleted()` las filtran |
+| `invoice.delete()` · `Invoice.objects.filter(...).delete()` | Completa `deleted_at`. Responde `(cantidad, {"app.Invoice": cantidad})`, como el `delete()` de Django |
+| `invoice.restore()` · `Invoice.all_objects.deleted().restore()` | Vacía `deleted_at` |
+| `invoice.hard_delete()` · `Invoice.all_objects.filter(...).hard_delete()` | Borra las filas de la base |
+| `invoice.is_deleted` | `True` cuando `deleted_at` tiene valor |
+
+- Un `unique=True` común sigue contando las filas borradas: una factura borrada bloquearía su número para siempre. Usá un `UniqueConstraint` con `condition=Q(deleted_at__isnull=True)`, como arriba.
+- El borrado lógico no se propaga: las filas que apuntan a una borrada quedan como estaban. Seguir un `ForeignKey` hacia adelante sigue devolviendo la fila borrada (`payment.invoice`), porque ahí Django usa un manager que no filtra; el lado inverso (`customer.invoice_set`) la oculta.
+- Borrar o restaurar no cambia `updated_at`.
 
 ---
 

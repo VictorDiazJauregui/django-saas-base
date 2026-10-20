@@ -34,6 +34,30 @@ ERROR_EXAMPLES = {
     "permission_denied": (403, "Public registration is disabled.", {}),
     "throttled": (429, "Request was throttled. Expected available in 60 seconds.", {}),
     "account_locked_out": (429, "Too many failed login attempts.", {}),
+    "not_found": (404, "Not found.", {}),
+    "totp_already_enabled": (409, "Two-factor authentication is already on.", {}),
+    "totp_not_enabled": (409, "Two-factor authentication is off.", {}),
+    "invalid_mfa_token": (
+        401,
+        "The login expired or is not valid. Log in again.",
+        {},
+    ),
+    "invalid_google_token": (401, "The Google sign-in is not valid. Try again.", {}),
+    "account_exists": (
+        409,
+        "An account with this email already exists. Log in with its password.",
+        {},
+    ),
+    "google_unavailable": (
+        503,
+        "Google can't be reached right now. Try again in a moment.",
+        {},
+    ),
+    "too_many_code_attempts": (
+        429,
+        "Too many wrong codes. Expected available in 300 seconds.",
+        {},
+    ),
 }
 
 RETRY_AFTER_HEADER = OpenApiParameter(

@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block title %}{% translate "API key created" %} | {{ site_title|default:_("Django site admin") }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+  &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; {{ api_key.name }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p>{% blocktranslate with name=api_key.name user=api_key.user trimmed %}
+    The key "{{ name }}" of {{ user }} is ready. Copy it now: it is not stored and won't be shown again.
+  {% endblocktranslate %}</p>
+  <p><code id="api-key">{{ raw_key }}</code></p>
+  <p>{% translate "Send it in the Authorization header:" %} <code>Authorization: Api-Key &lt;key&gt;</code></p>
+  <p><a class="button" href="{% url opts|admin_urlname:'changelist' %}">{% translate "Back to the API keys" %}</a></p>
+</div>
+{% endblock %}

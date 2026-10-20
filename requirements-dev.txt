@@ -11,7 +11,7 @@ attrs==26.1.0
     # via
     #   jsonschema
     #   referencing
-black==25.12.0
+black==26.10.1
 certifi==2026.10.19
     # via requests
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'

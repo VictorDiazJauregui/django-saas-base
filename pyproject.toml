@@ -23,7 +23,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "black>=25.12.0,<26",
+    "black>=26.10.1,<27",
     "coverage>=7.16.2,<8",
     "django-extensions>=4.1,<5",
     "ipython>=9.9.0,<10",

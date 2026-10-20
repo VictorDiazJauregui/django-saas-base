@@ -65,10 +65,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      # Fails on any dependency with a known vulnerability. The file pins every package, so
-      # nothing needs resolving; pip-audit stays out of the lockfile every clone inherits.
+      # Fails on any dependency with a known vulnerability, development tools included. The files
+      # pin every package, so nothing needs resolving; pip-audit stays out of the lockfile every
+      # clone inherits.
       - name: Audit dependencies
-        run: uvx pip-audit==2.10.1 -r requirements.txt --no-deps --disable-pip --strict
+        run: uvx pip-audit==2.10.1 -r requirements.txt -r requirements-dev.txt --no-deps --disable-pip --strict
 
       - name: Format
         run: uv run black --check .

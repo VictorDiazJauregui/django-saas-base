@@ -1,9 +1,11 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
+from django.db import transaction
 
 from core.emails import send_templated_email
 
+from .account_events import USER_EMAIL_VERIFIED, emit_account_event
 from .frontend_links import build_frontend_link, find_user_by_encoded_id
 
 VERIFICATION_SALT = "security.email_verification"
@@ -58,6 +60,8 @@ def find_user_to_verify(encoded_id, token):
     return user
 
 
+@transaction.atomic
 def mark_email_verified(user):
     user.is_email_verified = True
     user.save(update_fields=["is_email_verified"])
+    emit_account_event(USER_EMAIL_VERIFIED, user)

@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 
 from core.emails import send_templated_email
 
+from .account_events import USER_REGISTERED, emit_account_event
 from .email_verification import send_verification_email
 
 DUPLICATE_REGISTRATION_TEMPLATE = "security/emails/duplicate_registration"
@@ -28,9 +29,11 @@ def register_account(registration):
 
 def create_account(registration):
     verified = not settings.REQUIRE_EMAIL_VERIFICATION
-    return get_user_model().objects.create_user(
+    user = get_user_model().objects.create_user(
         **registration, is_email_verified=verified
     )
+    emit_account_event(USER_REGISTERED, user)
+    return user
 
 
 # Hashing the submitted password costs what creating the account costs, so a duplicate takes

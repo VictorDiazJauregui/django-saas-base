@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.core.checks import Error, Tags, Warning, register
+from django.core.exceptions import ImproperlyConfigured
+from django.core.mail import get_connection
 
 from core.environment import is_deployed
 
@@ -67,6 +69,8 @@ NON_DELIVERING_EMAIL_BACKENDS = frozenset(
         "django.core.mail.backends.filebased.EmailBackend",
         "django.core.mail.backends.locmem.EmailBackend",
         "django.core.mail.backends.dummy.EmailBackend",
+        "anymail.backends.console.EmailBackend",
+        "anymail.backends.test.EmailBackend",
     }
 )
 
@@ -83,7 +87,26 @@ def check_email_backend(app_configs, **kwargs):
         Warning(
             "EMAIL_URL does not deliver emails: password reset and verification "
             "emails will not reach anyone.",
-            hint="Set EMAIL_URL to your SMTP provider in .env.",
+            hint="Set EMAIL_URL or EMAIL_PROVIDER in .env.",
             id="core.W004",
         )
     ]
+
+
+# anymail reads its settings when it opens a connection, the first time an email goes out:
+# a missing API key would only show up as a failed password reset in the log.
+@register()
+def check_email_provider_settings(app_configs, **kwargs):
+    if not settings.EMAIL_BACKEND.startswith("anymail."):
+        return []
+    try:
+        get_connection()
+    except ImproperlyConfigured as error:
+        return [
+            Error(
+                f"EMAIL_PROVIDER is incomplete: {error}",
+                hint="Set the ANYMAIL_* variables your provider needs in .env.",
+                id="core.E004",
+            )
+        ]
+    return []

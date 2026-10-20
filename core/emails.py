@@ -2,6 +2,7 @@ import logging
 import smtplib
 from threading import Thread
 
+from anymail.exceptions import AnymailError
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
@@ -40,5 +41,5 @@ def start_background_delivery(message, template_prefix):
 def deliver(message, template_prefix):
     try:
         message.send()
-    except (smtplib.SMTPException, OSError):
+    except (smtplib.SMTPException, OSError, AnymailError):
         logger.exception("Could not send the %s email.", template_prefix)

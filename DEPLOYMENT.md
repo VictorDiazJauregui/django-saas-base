@@ -104,18 +104,20 @@ One is enough for most projects; add more if the deliveries pile up. If it stops
 
 ## 5. Scheduled tasks
 
-Two commands clean tables that only grow. Run them once a day:
+Three commands clean tables that only grow. Run them once a day:
 
 | Command | What it deletes |
 |---|---|
 | `python manage.py purge_audit_logs --older-than 90 --no-input` | Audit log records older than 90 days. See [Purging old records](README.md#purging-old-records) |
 | `python manage.py flushexpiredtokens` | Refresh tokens already expired, from the blacklist tables |
+| `python manage.py purge_webhook_deliveries --older-than 30 --no-input` | Webhook deliveries that finished more than 30 days ago. Pending ones are kept. See [Purging old deliveries](README.md#purging-old-deliveries) |
 
 With cron on a server that has Docker:
 
 ```text
 0 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py purge_audit_logs --older-than 90 --no-input
 30 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py flushexpiredtokens
+45 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py purge_webhook_deliveries --older-than 30 --no-input
 ```
 
 With Kubernetes, a `CronJob` per command:

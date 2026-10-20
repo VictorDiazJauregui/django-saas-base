@@ -43,6 +43,8 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **Audit log:** every request that changes data is recorded, with sensitive values redacted.
 - **OpenAPI schema and Swagger UI** for the frontend, open while developing and staff only in production.
 - **Roles** declared in code and applied as Django groups with `sync_roles`.
+- **API keys** for server-to-server calls, created and revoked in the admin. Off by default.
+- **Two-factor authentication** with an authenticator app and recovery codes, in the API and the admin. Off by default.
 - **Base models** with timestamps and an optional soft delete, for your own apps.
 - **Admin panel** to manage users and browse the audit log.
 - **Production image:** a `Dockerfile` with gunicorn and whitenoise, a health endpoint, and logs as text or JSON. See [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -349,6 +351,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `THROTTLE_LOGIN_RATE` | Django | Limit for `POST /api/v1/auth/login/` | `10/10m` |
 | `THROTTLE_REGISTER_RATE` | Django | Limit for `POST /api/v1/auth/register/` | `5/h` |
 | `THROTTLE_VERIFY_EMAIL_RATE` | Django | Limit for `verify-email/` and `verify-email/resend/` | `5/h` |
+| `THROTTLE_MFA_RATE` | Django | Limit for `login/2fa/` and the `2fa/` routes that check a code | `5/10m` |
 | `THROTTLE_PASSWORD_RATE` | Django | Limit for the password change and the password reset, and for the endpoints you add with `throttle_scope = "password"` | `5/h` |
 | `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header. Used by the rate limits and the audit log. A negative number stops Django from starting | `0` |
 | `CACHE_URL` | Django | Cache where the limits are counted | `locmemcache://` |
@@ -365,6 +368,10 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `ANYMAIL_*` | Django | Settings of that provider, such as `ANYMAIL_RESEND_API_KEY` | — |
 | `DEFAULT_FROM_EMAIL` | Django | Sender of the emails the project sends | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` closes `POST /api/v1/auth/register/` with `403`. See [Public registration](#public-registration) | `True` |
+| `API_KEYS_ENABLED` | Django | `True` accepts `Authorization: Api-Key <key>`, with keys created in the admin. See [API keys](#api-keys) | `False` |
+| `TOTP_ENABLED` | Django | `True` lets users add a second factor with an authenticator app. See [Two-factor authentication](#two-factor-authentication) | `False` |
+| `TOTP_ENCRYPTION_KEY` | Django | Fernet key that encrypts the second-factor secrets. Required with `TOTP_ENABLED=True`; never change it | *(empty)* |
+| `TOTP_ISSUER` | Django | Name the authenticator app shows next to the account | *(empty)* |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Frontend page the reset email links to, with `{uid}` and `{token}`. Required: without it, or without a marker, Django doesn't start. See [Password reset](#password-reset) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
 | `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutes a reset link works | `60` |
 | `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: a public registration logs in only after following the link of its email. See [Email verification](#email-verification) | `False` |
@@ -762,6 +769,48 @@ Both routes share `THROTTLE_VERIFY_EMAIL_RATE` (5 per hour by default, per IP). 
 
 With `REQUIRE_EMAIL_VERIFICATION=False` (the default), a new account logs in right away. The `201` hides the duplicate, but trying to log in with the password just used still shows whether the account was new: closing that needs the verification on.
 
+### Two-factor authentication
+
+Each user can add a second factor with an authenticator app (Google Authenticator, 1Password, Authy and the like). Off by default: `TOTP_ENABLED=True` turns it on and needs `TOTP_ENCRYPTION_KEY`, the key the secrets are encrypted with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Keep that key with the rest of the secrets and never change it: the secrets encrypted with the old one can't be read, and those users can't log in until an admin turns off their second factor. `TOTP_ISSUER` is the name the app shows next to the account (empty: only the email).
+
+**Turning it on** (with the access token):
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /api/v1/auth/2fa/` | — | `200` `{"enabled": false, "recovery_codes_left": 0}` |
+| `POST /api/v1/auth/2fa/setup/` | — | `200` `{"secret": "...", "otpauth_uri": "otpauth://totp/..."}`. The frontend draws the QR from `otpauth_uri`. Nothing changes until the next step |
+| `POST /api/v1/auth/2fa/confirm/` | `{"otp": "492039"}` | `200` `{"recovery_codes": ["3f9a-07c1-b2e4-8d56", ...]}`: 10 codes, shown only here |
+| `POST /api/v1/auth/2fa/recovery-codes/` | `{"otp": "..."}` or `{"recovery_code": "..."}` | `200` with 10 new codes; the old ones stop working |
+| `POST /api/v1/auth/2fa/disable/` | `{"password": "...", "otp": "..."}` or with `recovery_code` | `204` |
+
+**Logging in.** A user without a second factor gets the tokens from `POST /api/v1/auth/login/` as always. A user with one gets this instead:
+
+```json
+{"mfa_required": true, "mfa_token": "IjhmNDE5YWZmIg:1tE3x0:Yp2v0n4h..."}
+```
+
+and finishes with `POST /api/v1/auth/login/2fa/` and `{"mfa_token": "...", "otp": "492039"}` (or `"recovery_code"` instead of `"otp"`), which answers the usual `{"access": "...", "refresh": "..."}`. The `mfa_token` works for 5 minutes.
+
+| Answer | When |
+|---|---|
+| `400` with `fields.otp` or `fields.recovery_code` | Wrong code, a code already used, or both fields or none |
+| `401` `invalid_mfa_token` | The `mfa_token` expired, was altered, or the user was deactivated or turned off the second factor meanwhile |
+| `409` `totp_already_enabled` / `totp_not_enabled` | `setup/` with the second factor on; `disable/` or `recovery-codes/` with it off |
+| `429` `too_many_code_attempts` | 5 wrong codes in 5 minutes for that user, from anywhere. It waits `Retry-After` seconds |
+| `429` `throttled` | `THROTTLE_MFA_RATE` (5 every 10 minutes per IP) for `login/2fa/`, `confirm/`, `disable/` and `recovery-codes/` |
+
+- A code works once, and the codes of the 30 seconds before and after the current ones are accepted for phones with a clock slightly off.
+- Recovery codes work once each and ignore case, dashes and spaces.
+- **The admin** asks for the code too: its login form gets an "Authentication code" field, which takes a code of the app or a recovery code. The user list shows a "Two-factor" column, and the **Turn off two-factor authentication** action is for someone who lost the phone and the codes.
+- The audit log hides `otp`, `recovery_code`, `mfa_token` and `secret`. The secret is stored encrypted, and the recovery codes as SHA-256 hashes.
+- With `TOTP_ENABLED=False` the `2fa/` routes and `login/2fa/` answer `404`, the admin form has no code field and nobody is asked for a second factor. The devices stay in the database for when it's turned back on.
+
 ### Rate limits
 
 Login allows 10 requests every 10 minutes; registration, the password change and reset, and the email verification 5 per hour each. They are counted by client IP, except the password change, which is counted per user. The next request gets `429` until the period frees a slot, with the wait in seconds in the `Retry-After` header and in `detail`:
@@ -775,7 +824,7 @@ Every request counts, whatever its result: a correct password after 10 failed at
 Two things to set before production:
 
 - **Behind a proxy**, set `TRUSTED_PROXY_COUNT` to the number of proxies that append to `X-Forwarded-For`. With `0`, every request seems to come from the proxy and all clients share one limit. A higher number than the real one lets clients pick their own IP.
-- **With several processes** (gunicorn workers, more than one server), the default cache is per process and each one counts on its own: 4 workers allow 40 logins every 10 minutes. Point `CACHE_URL` at Redis (`redis://host:6379/0`) and add the `redis` package to the project.
+- **With several processes** (gunicorn workers, more than one server), the default cache is per process and each one counts on its own: 4 workers allow 40 logins every 10 minutes, and the 5 wrong second-factor codes become 20. Point `CACHE_URL` at Redis (`redis://host:6379/0`) and add the `redis` package to the project.
 
 ### Account lockout
 
@@ -896,6 +945,30 @@ python manage.py sync_roles
 - Changes made in the admin to a declared role are undone by the next run: edit `core/roles.py` instead.
 - The base declares no roles. To keep them elsewhere, point `ROLE_DEFINITIONS` in `core/settings.py` at your own dict.
 
+### API keys
+
+For another server that calls the API without a user logging in: a billing system, a cron job in another project, a partner integration. Off by default; `API_KEYS_ENABLED=True` turns it on.
+
+1. In the admin, under **API keys**, add one: pick the user it acts as and a name, and optionally an expiry date.
+2. The next page shows the key, once. It is not stored: the database keeps only its SHA-256 hash and the first 12 characters (the prefix), which the admin lists to tell keys apart.
+3. The other server sends it in every request:
+
+   ```bash
+   curl http://localhost:8000/api/v1/auth/me/ -H "Authorization: Api-Key <key>"
+   ```
+
+   In PowerShell:
+
+   ```powershell
+   Invoke-RestMethod -Uri http://localhost:8000/api/v1/auth/me/ -Headers @{ Authorization = "Api-Key <key>" }
+   ```
+
+- The key does exactly what its user can do: the same permissions, roles and rate limits. Give each integration a user of its own, with only the roles it needs, instead of a person's account.
+- A revoked or expired key, a key of a deactivated user, or a malformed header gets `401` with `{"code": "invalid_api_key", "detail": "Invalid API key.", "fields": {}}`.
+- To revoke, select the keys in the admin and run **Revoke selected API keys**. It takes effect on the next request. A key can't be edited: create a new one and revoke the old one.
+- The admin shows when each key was last used. The audit log records the requests under the key's user, and the header is never stored.
+- With `API_KEYS_ENABLED=False`, an `Api-Key` header is ignored and the request gets the usual `401`. The keys stay in the database and work again when the flag is turned back on.
+
 ### CORS
 
 A browser only lets a frontend on another domain or port call the API if the API allows that origin. List the origins in `CORS_ALLOWED_ORIGINS`, each with its scheme and port and without a trailing slash:
@@ -997,7 +1070,7 @@ Values whose key looks like a credential are stored as `[REDACTED]`, at any dept
 
 | Rule | Keys |
 |---|---|
-| Contains | `password`, `passwd`, `token`, `secret`, `apikey`, `authorization`, `credential`, `privatekey` |
+| Contains | `password`, `passwd`, `token`, `secret`, `apikey`, `authorization`, `credential`, `privatekey`, `recoverycode` |
 | Is exactly | `otp`, `pin`, `cvv`, `cvc`, `cardnumber`, `ssn`, `access`, `refresh` |
 
 Short words only match whole keys: as a fragment, `pin` would also hide `shipping`. For keys of your own project, list them in `AUDIT_EXTRA_SENSITIVE_KEYS`. They match whole keys after the same normalization: `AUDIT_EXTRA_SENSITIVE_KEYS=tax-id,iban` redacts `tax_id`, `taxId` and `IBAN`, but not `tax_id_type`.

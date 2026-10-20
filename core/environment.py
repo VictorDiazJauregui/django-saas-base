@@ -1,5 +1,6 @@
 from urllib.parse import urlsplit
 
+from cryptography.fernet import Fernet
 from django.core.exceptions import ImproperlyConfigured
 
 DEVELOPMENT_ENVIRONMENTS = ("local", "ci")
@@ -169,3 +170,17 @@ def parse_lockout_combination(raw_combination):
 # their combination: "username+ip_address,user_agent" -> [["username", "ip_address"], "user_agent"].
 def parse_lockout_parameters(raw_value):
     return [parse_lockout_combination(part) for part in raw_value.split(",")]
+
+
+def validate_totp_encryption_key(key, enabled):
+    if not enabled:
+        return key
+    try:
+        Fernet(key)
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            "TOTP_ENABLED=True needs TOTP_ENCRYPTION_KEY, a Fernet key. Generate one with: "
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
+        ) from error
+    return key

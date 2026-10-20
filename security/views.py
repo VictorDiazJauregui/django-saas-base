@@ -6,7 +6,7 @@ from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import (
     TokenBlacklistView,
     TokenObtainPairView,
@@ -63,28 +63,23 @@ class UserRegisterView(generics.CreateAPIView):
         raise PermissionDenied(detail=message, code=code)
 
 
+# Attaches the user whose password matched to the request, for the audit log, also when the
+# answer is a second-factor challenge.
 @login_schema
 class CustomLoginView(TokenObtainPairView):
-    """
-    Custom login view.
-    After a successful login, it attaches the authenticated user to the request
-    so the AuditMiddleware can log which user performed the login action.
-    """
-
     throttle_scope = "login"
     serializer_class = LockoutAwareTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        if response.status_code != status.HTTP_200_OK:
-            return response
-        user = find_token_owner(AccessToken, response.data.get("access"))
-        request._request.user_for_audit = user
-        if user is not None:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        answer = serializer.validated_data
+        request._request.user_for_audit = serializer.user
+        if "access" in answer:
             # SimpleJWT does not send it: Django updates last_login and axes resets the
             # failure count of the account, as after an admin login.
-            user_logged_in.send(sender=user.__class__, request=request, user=user)
-        return response
+            user_logged_in.send(sender=User, request=request, user=serializer.user)
+        return Response(answer)
 
 
 # Public like SimpleJWT's view: holding the refresh token is enough to use it, so it is

@@ -11,8 +11,12 @@ attrs==26.1.0
     #   referencing
 certifi==2026.10.19
     # via requests
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+    # via cryptography
 charset-normalizer==3.5.2
     # via requests
+cryptography==50.0.2
+    # via saas
 django==5.2.17
     # via
     #   django-anymail
@@ -58,8 +62,12 @@ psycopg==3.3.6
     # via saas
 psycopg-binary==3.3.6 ; implementation_name != 'pypy'
     # via psycopg
+pycparser==3.11 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+    # via cffi
 pyjwt==2.15.1
     # via djangorestframework-simplejwt
+pyotp==2.10.0
+    # via saas
 pyyaml==6.0.3
     # via drf-spectacular
 referencing==0.37.0

@@ -19,12 +19,19 @@ EXPECTED_OPERATIONS = {
     ("post", f"{AUTH}/password/reset/confirm/"),
     ("post", f"{AUTH}/verify-email/"),
     ("post", f"{AUTH}/verify-email/resend/"),
+    ("post", f"{AUTH}/login/2fa/"),
+    ("get", f"{AUTH}/2fa/"),
+    ("post", f"{AUTH}/2fa/setup/"),
+    ("post", f"{AUTH}/2fa/confirm/"),
+    ("post", f"{AUTH}/2fa/disable/"),
+    ("post", f"{AUTH}/2fa/recovery-codes/"),
     ("get", HEALTH),
 }
 NO_CONTENT_OPERATIONS = (
     f"{AUTH}/password/change/",
     f"{AUTH}/password/reset/confirm/",
     f"{AUTH}/verify-email/",
+    f"{AUTH}/2fa/disable/",
 )
 ERROR_REFERENCE = "#/components/schemas/ApiError"
 
@@ -63,6 +70,24 @@ class OpenApiSchemaTests(SimpleTestCase):
         }
 
         self.assertEqual(operations, EXPECTED_OPERATIONS)
+
+    def test_api_key_scheme_also_protects_the_profile(self):
+        scheme = self.components["securitySchemes"]["apiKeyAuth"]
+
+        self.assertEqual((scheme["type"], scheme["in"]), ("apiKey", "header"))
+        self.assertIn(
+            {"apiKeyAuth": []}, self.operation("get", f"{AUTH}/me/")["security"]
+        )
+
+    def test_the_login_documents_the_second_factor_challenge(self):
+        answer = response_schema(self.operation("post", f"{AUTH}/login/"), "200")
+        properties = self.components["schemas"][answer["$ref"].split("/")[-1]][
+            "properties"
+        ]
+
+        self.assertEqual(
+            set(properties), {"access", "refresh", "mfa_required", "mfa_token"}
+        )
 
     def test_bearer_scheme_protects_the_profile(self):
         scheme = self.components["securitySchemes"]["jwtAuth"]

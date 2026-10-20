@@ -104,18 +104,20 @@ Uno alcanza para la mayoría de los proyectos; sumá más si las entregas se acu
 
 ## 5. Tareas programadas
 
-Dos comandos limpian tablas que solo crecen. Corrélos una vez por día:
+Tres comandos limpian tablas que solo crecen. Corrélos una vez por día:
 
 | Comando | Qué borra |
 |---|---|
 | `python manage.py purge_audit_logs --older-than 90 --no-input` | Los registros de auditoría de más de 90 días. Ver [Purga de registros viejos](README.es.md#purga-de-registros-viejos) |
 | `python manage.py flushexpiredtokens` | Los refresh tokens ya vencidos, de las tablas de la blacklist |
+| `python manage.py purge_webhook_deliveries --older-than 30 --no-input` | Las entregas de webhooks que terminaron hace más de 30 días. Las pendientes se conservan. Ver [Purga de entregas viejas](README.es.md#purga-de-entregas-viejas) |
 
 Con cron, en un servidor con Docker:
 
 ```text
 0 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py purge_audit_logs --older-than 90 --no-input
 30 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py flushexpiredtokens
+45 3 * * * docker run --rm --env-file /srv/myproject/.env.prod myproject-api python manage.py purge_webhook_deliveries --older-than 30 --no-input
 ```
 
 Con Kubernetes, un `CronJob` por comando:

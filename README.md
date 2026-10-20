@@ -1129,7 +1129,24 @@ def is_valid_webhook(secret, signature_header, body, tolerance=300):
 - Redirects are not followed: a `3xx` counts as a failure.
 - In `staging` and `prod`, URLs that resolve to a private, loopback or link-local address are refused, in the admin and when sending, so an endpoint can't make the server call its own network or the cloud metadata service. `WEBHOOK_ALLOW_PRIVATE_URLS=True` allows them, for example for a receiver inside the same network. In `local` and `ci` they are allowed.
 - With `WEBHOOKS_ENABLED=False`, `emit_webhook_event` stores nothing. The deliveries already stored are still sent by `deliver_webhooks`.
-- The deliveries table only grows. Delete old rows from time to time, for example `WebhookDelivery.objects.filter(created_at__lt=...).delete()` in a scheduled task.
+- The deliveries table only grows: delete the old ones with `purge_webhook_deliveries`.
+
+### Purging old deliveries
+
+`purge_webhook_deliveries` deletes the deliveries that finished, succeeded or failed, more than a number of days ago. It works like [`purge_audit_logs`](#purging-old-records), with the same options:
+
+```bash
+python manage.py purge_webhook_deliveries --older-than 30
+```
+
+```text
+About to delete 812 finished webhook deliveries, from 2026-08-02 to 2026-09-19 inclusive.
+Continue? [y/N]
+```
+
+- Pending deliveries are never deleted, however old: they are still to be sent.
+- The age counts from when the delivery finished, not from when it was created. A delivery created months ago and retried from the admin yesterday is kept.
+- `--dry-run` shows the count and the range, and `--no-input` deletes without asking, for scheduled runs. See [DEPLOYMENT.md](DEPLOYMENT.md#5-scheduled-tasks).
 
 ## Audit log
 

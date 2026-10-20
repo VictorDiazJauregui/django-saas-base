@@ -1129,7 +1129,24 @@ def is_valid_webhook(secret, signature_header, body, tolerance=300):
 - Los redirects no se siguen: un `3xx` cuenta como fallo.
 - En `staging` y `prod` se rechazan las URLs que resuelven a una dirección privada, de loopback o link-local, en el admin y al enviar, para que un endpoint no haga que el servidor llame a su propia red o al servicio de metadatos de la nube. `WEBHOOK_ALLOW_PRIVATE_URLS=True` las permite, por ejemplo para un receptor dentro de la misma red. En `local` y `ci` se permiten.
 - Con `WEBHOOKS_ENABLED=False`, `emit_webhook_event` no guarda nada. Las entregas ya guardadas las sigue mandando `deliver_webhooks`.
-- La tabla de entregas solo crece. Borrá las filas viejas cada tanto, por ejemplo con `WebhookDelivery.objects.filter(created_at__lt=...).delete()` en una tarea programada.
+- La tabla de entregas solo crece: las viejas se borran con `purge_webhook_deliveries`.
+
+### Purga de entregas viejas
+
+`purge_webhook_deliveries` borra las entregas que terminaron, exitosas o fallidas, hace más de una cantidad de días. Funciona como [`purge_audit_logs`](#purga-de-registros-viejos), con las mismas opciones:
+
+```bash
+python manage.py purge_webhook_deliveries --older-than 30
+```
+
+```text
+About to delete 812 finished webhook deliveries, from 2026-08-02 to 2026-09-19 inclusive.
+Continue? [y/N]
+```
+
+- Las entregas pendientes no se borran nunca, aunque sean viejas: todavía se tienen que mandar.
+- La edad se cuenta desde que la entrega terminó, no desde que se creó. Una entrega creada hace meses y reintentada ayer desde el admin se conserva.
+- `--dry-run` muestra la cantidad y el rango, y `--no-input` borra sin preguntar, para las tareas programadas. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md#5-tareas-programadas).
 
 ## Auditoría
 

@@ -259,7 +259,8 @@ class InvalidTokenTests(GoogleLoginTestCase):
     def test_google_down_gets_503(self):
         self.fetch.side_effect = PyJWKClientConnectionError("timed out")
 
-        response = self.log_in_with_google()
+        with self.assertLogs("django.request", "ERROR"):
+            response = self.log_in_with_google()
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["code"], "google_unavailable")

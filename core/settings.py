@@ -2,6 +2,7 @@
 Django settings for the saas_boilerplate project.
 """
 
+import os
 from datetime import timedelta
 from importlib.util import find_spec
 from pathlib import Path
@@ -9,6 +10,11 @@ from pathlib import Path
 import environ
 from django.utils.translation import gettext_lazy as _
 
+from core.email_provider import (
+    build_provider_backend,
+    read_anymail_settings,
+    validate_email_provider,
+)
 from core.environment import (
     default_allowed_hosts,
     is_deployed,
@@ -241,10 +247,17 @@ AUDIT_PAYLOAD_MAX_BYTES = parse_non_negative_int(
 # --- Email ---
 # One URL configures any SMTP provider; empty or missing prints the emails to the console.
 # Lowercase so the parsed URL, password included, does not become a setting of its own.
-email_url_settings = env.email_url_config(
-    env.str("EMAIL_URL", default="") or "consolemail://"
+email_url = env.str("EMAIL_URL", default="")
+email_url_settings = env.email_url_config(email_url or "consolemail://")
+# A provider name sends through its HTTP API with anymail instead of SMTP.
+EMAIL_PROVIDER = validate_email_provider(
+    env.str("EMAIL_PROVIDER", default=""), email_url
 )
-EMAIL_BACKEND = email_url_settings["EMAIL_BACKEND"]
+EMAIL_BACKEND = (
+    build_provider_backend(EMAIL_PROVIDER)
+    if EMAIL_PROVIDER
+    else email_url_settings["EMAIL_BACKEND"]
+)
 EMAIL_HOST = email_url_settings["EMAIL_HOST"] or "localhost"
 EMAIL_PORT = email_url_settings["EMAIL_PORT"] or 25
 EMAIL_HOST_USER = email_url_settings["EMAIL_HOST_USER"] or ""
@@ -254,6 +267,9 @@ EMAIL_USE_SSL = email_url_settings.get("EMAIL_USE_SSL", False)
 # Without a timeout, an SMTP server that stops answering blocks the sender forever.
 EMAIL_TIMEOUT = 10
 DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+# Every ANYMAIL_* variable, without the prefix. The timeout stays the SMTP one: a text value
+# from the environment would break the HTTP client.
+ANYMAIL = {**read_anymail_settings(os.environ), "REQUESTS_TIMEOUT": EMAIL_TIMEOUT}
 EMAIL_SEND_IN_BACKGROUND = True
 
 # --- CORS ---

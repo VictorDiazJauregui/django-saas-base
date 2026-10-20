@@ -37,6 +37,7 @@ PRODUCTION_ENVIRONMENT = {
     "AXES_COOLOFF_MINUTES": "15",
     "AXES_LOCKOUT_PARAMETERS": "username+ip_address",
     "EMAIL_URL": "smtp+tls://smtp.example.com:587",
+    "EMAIL_PROVIDER": "",
     "DEFAULT_FROM_EMAIL": "webmaster@localhost",
     "FRONTEND_PASSWORD_RESET_URL": "https://app.example.com/reset-password?uid={uid}&token={token}",
     "PASSWORD_RESET_TIMEOUT_MINUTES": "60",

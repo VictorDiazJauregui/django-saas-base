@@ -30,6 +30,7 @@ from core.environment import (
     validate_frontend_link_url,
     validate_optional_frontend_link_url,
     validate_page_sizes,
+    validate_totp_encryption_key,
     validate_trusted_proxy_count,
 )
 from core.logging_config import build_logging_config, parse_log_format, parse_log_level
@@ -284,6 +285,21 @@ CORS_EXPOSE_HEADERS = ["Retry-After"]
 # False closes POST /api/v1/auth/register/; the admin and create_admin_auto still add users.
 ALLOW_PUBLIC_REGISTRATION = env.bool("ALLOW_PUBLIC_REGISTRATION", default=True)
 
+# --- API keys ---
+# True lets other servers authenticate with "Authorization: Api-Key <key>". Keys are created
+# in the admin and act as the user they belong to.
+API_KEYS_ENABLED = env.bool("API_KEYS_ENABLED", default=False)
+
+# --- Two-factor authentication ---
+# True lets each user turn on a second factor with an authenticator app. The secrets are
+# encrypted with their own key, so rotating SECRET_KEY doesn't lock anyone out.
+TOTP_ENABLED = env.bool("TOTP_ENABLED", default=False)
+TOTP_ENCRYPTION_KEY = validate_totp_encryption_key(
+    env.str("TOTP_ENCRYPTION_KEY", default=""), TOTP_ENABLED
+)
+# The name the authenticator app shows next to the account. Empty shows only the email.
+TOTP_ISSUER = env.str("TOTP_ISSUER", default="")
+
 # --- Roles ---
 # The roles sync_roles applies as Django groups. Point it at your own module to declare them.
 ROLE_DEFINITIONS = "core.roles.ROLES"
@@ -326,11 +342,13 @@ THROTTLE_RATE_DEFAULTS = {
     "register": "5/h",
     "password": "5/h",
     "verify_email": "5/h",
+    "mfa": "5/10m",
 }
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "security.authentication.ApiKeyAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_THROTTLE_CLASSES": (

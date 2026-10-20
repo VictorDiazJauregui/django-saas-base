@@ -7,4 +7,4 @@ class SecurityConfig(AppConfig):
     verbose_name = _("Security")
 
     def ready(self):
-        from . import signals  # noqa: F401
+        from . import api_key_schema, signals  # noqa: F401

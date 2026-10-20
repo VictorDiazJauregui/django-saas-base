@@ -16,6 +16,7 @@ from core.email_provider import (
     validate_email_provider,
 )
 from core.environment import (
+    GOOGLE_JWKS_URL,
     default_allowed_hosts,
     is_deployed,
     parse_lockout_parameters,
@@ -28,6 +29,7 @@ from core.environment import (
     validate_debug,
     validate_environment,
     validate_frontend_link_url,
+    validate_google_jwks_url,
     validate_optional_frontend_link_url,
     validate_page_sizes,
     validate_totp_encryption_key,
@@ -81,6 +83,7 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     # Local apps
     "security.apps.SecurityConfig",
+    "webhooks.apps.WebhooksConfig",
 ]
 
 OPTIONAL_DEVELOPMENT_APPS = ["django_extensions"]
@@ -299,6 +302,29 @@ TOTP_ENCRYPTION_KEY = validate_totp_encryption_key(
 )
 # The name the authenticator app shows next to the account. Empty shows only the email.
 TOTP_ISSUER = env.str("TOTP_ISSUER", default="")
+
+# --- Login with Google ---
+# The OAuth client ids of your frontends, from the Google Cloud console. Empty turns it off.
+GOOGLE_CLIENT_IDS = env.list("GOOGLE_CLIENT_IDS", default=[])
+GOOGLE_JWKS_URL = validate_google_jwks_url(
+    env.str("GOOGLE_JWKS_URL", default=GOOGLE_JWKS_URL), ENVIRONMENT
+)
+
+# --- Webhooks ---
+# True stores a delivery for each event an active endpoint subscribes to; the deliver_webhooks
+# command sends them. Private addresses are refused in staging and prod unless allowed here.
+WEBHOOKS_ENABLED = env.bool("WEBHOOKS_ENABLED", default=False)
+WEBHOOK_MAX_ATTEMPTS = parse_positive_int(
+    "WEBHOOK_MAX_ATTEMPTS", env.str("WEBHOOK_MAX_ATTEMPTS", default="5")
+)
+WEBHOOK_TIMEOUT_SECONDS = parse_positive_int(
+    "WEBHOOK_TIMEOUT_SECONDS", env.str("WEBHOOK_TIMEOUT_SECONDS", default="10")
+)
+WEBHOOK_ALLOW_PRIVATE_URLS = parse_optional_bool(
+    "WEBHOOK_ALLOW_PRIVATE_URLS",
+    env.str("WEBHOOK_ALLOW_PRIVATE_URLS", default=""),
+    default=not is_deployed(ENVIRONMENT),
+)
 
 # --- Roles ---
 # The roles sync_roles applies as Django groups. Point it at your own module to declare them.

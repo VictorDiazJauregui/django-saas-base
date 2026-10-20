@@ -1333,7 +1333,7 @@ class Invoice(TimestampedModel, SoftDeleteModel):
 
 **Do not edit the `requirements` files by hand.** After changing a dependency, regenerate both.
 
-The CI fails when a package of `requirements.txt` has a known vulnerability (`pip-audit`). Dependabot opens pull requests against `staging` every week with the new versions of the packages declared in `pyproject.toml` and of the GitHub Actions; it starts once `.github/dependabot.yml` reaches `main`. Its pull requests don't regenerate the `requirements` files: see [CONTRIBUTING.md](CONTRIBUTING.md#dependabot-pull-requests). Dependabot alerts and security updates are turned on in the repository settings, not in that file.
+The CI fails when a package of `requirements.txt` or `requirements-dev.txt` has a known vulnerability (`pip-audit`). Dependabot opens pull requests against `staging` every week with the new versions of the packages declared in `pyproject.toml` and of the GitHub Actions; it starts once `.github/dependabot.yml` reaches `main`. Its pull requests don't regenerate the `requirements` files: see [CONTRIBUTING.md](CONTRIBUTING.md#dependabot-pull-requests). Dependabot alerts and security updates are turned on in the repository settings, not in that file.
 
 More: [managing dependencies in uv](https://docs.astral.sh/uv/concepts/projects/dependencies/) · [exporting the lockfile](https://docs.astral.sh/uv/concepts/projects/export/).
 

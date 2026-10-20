@@ -1333,7 +1333,7 @@ class Invoice(TimestampedModel, SoftDeleteModel):
 
 **No edites los `requirements` a mano.** Después de cambiar una dependencia, regenerá los dos.
 
-La CI falla si un paquete de `requirements.txt` tiene una vulnerabilidad conocida (`pip-audit`). Dependabot abre cada semana pull requests contra `staging` con las versiones nuevas de los paquetes declarados en `pyproject.toml` y de las GitHub Actions; empieza a hacerlo cuando `.github/dependabot.yml` llega a `main`. Sus pull requests no regeneran los `requirements`: ver [CONTRIBUTING.es.md](CONTRIBUTING.es.md#pull-requests-de-dependabot). Las alertas y las security updates de Dependabot se activan en la configuración del repositorio, no en ese archivo.
+La CI falla si un paquete de `requirements.txt` o de `requirements-dev.txt` tiene una vulnerabilidad conocida (`pip-audit`). Dependabot abre cada semana pull requests contra `staging` con las versiones nuevas de los paquetes declarados en `pyproject.toml` y de las GitHub Actions; empieza a hacerlo cuando `.github/dependabot.yml` llega a `main`. Sus pull requests no regeneran los `requirements`: ver [CONTRIBUTING.es.md](CONTRIBUTING.es.md#pull-requests-de-dependabot). Las alertas y las security updates de Dependabot se activan en la configuración del repositorio, no en ese archivo.
 
 Más información: [dependencias en uv](https://docs.astral.sh/uv/concepts/projects/dependencies/) · [exportar el lock](https://docs.astral.sh/uv/concepts/projects/export/).
 

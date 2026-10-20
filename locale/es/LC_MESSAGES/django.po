@@ -115,12 +115,6 @@ msgstr "Responde 201 con el mismo cuerpo, sea el email nuevo o ya registrado."
 msgid "Log in"
 msgstr "Iniciar sesión"
 
-#: security/api_docs.py:89
-msgid ""
-"Returns an access and a refresh token. Repeated failures lock the account "
-"for a while and answer 429 with the code account_locked_out."
-msgstr "Devuelve un token access y uno refresh. Los fallos repetidos bloquean la cuenta por un tiempo y responden 429 con el código account_locked_out."
-
 #: security/api_docs.py:105
 msgid "Get a new token pair"
 msgstr "Obtener un par de tokens nuevo"
@@ -386,3 +380,212 @@ msgid ""
 "If the email belongs to an account pending verification, a new link is on "
 "its way."
 msgstr "Si el email pertenece a una cuenta pendiente de verificación, le llegará un enlace nuevo."
+
+#: security/admin.py:89
+msgid "Two-factor"
+msgstr "Dos pasos"
+
+#: security/admin.py:96 security/two_factor_api_docs.py:83
+msgid "Turn off two-factor authentication"
+msgstr "Apagar la autenticación en dos pasos"
+
+#: security/admin.py:104
+#, python-format
+msgid "Two-factor authentication turned off for %(count)d user."
+msgid_plural "Two-factor authentication turned off for %(count)d users."
+msgstr[0] "Autenticación en dos pasos apagada para %(count)d usuario."
+msgstr[1] "Autenticación en dos pasos apagada para %(count)d usuarios."
+msgstr[2] "Autenticación en dos pasos apagada para %(count)d usuarios."
+
+#: security/admin.py:275
+msgid "Revoke selected API keys"
+msgstr "Revocar las API keys seleccionadas"
+
+#: security/admin.py:279
+#, python-format
+msgid "%(count)d API key revoked."
+msgid_plural "%(count)d API keys revoked."
+msgstr[0] "%(count)d API key revocada."
+msgstr[1] "%(count)d API keys revocadas."
+msgstr[2] "%(count)d API keys revocadas."
+
+#: security/api_docs.py:114
+msgid "Returns an access and a refresh token. Repeated failures lock the account for a while and answer 429 with the code account_locked_out. A user with two-factor authentication gets mfa_required and an mfa_token instead, for POST /api/v1/auth/login/2fa/."
+msgstr "Devuelve un token access y uno refresh. Los fallos repetidos bloquean la cuenta por un tiempo y responden 429 con el código account_locked_out. Un usuario con autenticación en dos pasos recibe en cambio mfa_required y un mfa_token, para POST /api/v1/auth/login/2fa/."
+
+#: security/api_key_schema.py:15
+msgid "Api-Key <key>. Only with API_KEYS_ENABLED=True; the keys are created in the admin."
+msgstr "Api-Key <key>. Solo con API_KEYS_ENABLED=True; las keys se crean en el admin."
+
+#: security/api_keys.py:15
+msgid "Invalid API key."
+msgstr "API key inválida."
+
+#: security/forms.py:27
+msgid "Authentication code"
+msgstr "Código de autenticación"
+
+#: security/forms.py:32
+msgid "Only with two-factor authentication on: the code of your app or a recovery code."
+msgstr "Solo con la autenticación en dos pasos activa: el código de su app o un código de recuperación."
+
+#: security/forms.py:38
+msgid "Enter a valid code of your app or a recovery code."
+msgstr "Ingrese un código válido de su app o un código de recuperación."
+
+#: security/forms.py:39
+msgid "Too many wrong codes. Try again in a few minutes."
+msgstr "Demasiados códigos incorrectos. Intente de nuevo en unos minutos."
+
+#: security/models.py:148
+msgid "name"
+msgstr "nombre"
+
+#: security/models.py:149
+msgid "prefix"
+msgstr "prefijo"
+
+#: security/models.py:151
+msgid "expires at"
+msgstr "vence el"
+
+#: security/models.py:153
+msgid "revoked at"
+msgstr "revocada el"
+
+#: security/models.py:156
+msgid "last used at"
+msgstr "último uso"
+
+#: security/models.py:160
+msgid "API key"
+msgstr "API key"
+
+#: security/models.py:161
+msgid "API keys"
+msgstr "API keys"
+
+#: security/models.py:189
+msgid "authenticator app"
+msgstr "app de autenticación"
+
+#: security/models.py:190
+msgid "authenticator apps"
+msgstr "apps de autenticación"
+
+#: security/models.py:207
+msgid "recovery code"
+msgstr "código de recuperación"
+
+#: security/models.py:208
+msgid "recovery codes"
+msgstr "códigos de recuperación"
+
+#: security/templates/admin/security/apikey/created.html:4
+msgid "API key created"
+msgstr "API key creada"
+
+#: security/templates/admin/security/apikey/created.html:8
+msgid "Home"
+msgstr "Inicio"
+
+#: security/templates/admin/security/apikey/created.html:16
+#, python-format
+msgid "The key \"%(name)s\" of %(user)s is ready. Copy it now: it is not stored and won't be shown again."
+msgstr "La key \"%(name)s\" de %(user)s está lista. Cópiela ahora: no se guarda y no se vuelve a mostrar."
+
+#: security/templates/admin/security/apikey/created.html:20
+msgid "Send it in the Authorization header:"
+msgstr "Envíela en el header Authorization:"
+
+#: security/templates/admin/security/apikey/created.html:21
+msgid "Back to the API keys"
+msgstr "Volver a las API keys"
+
+#: security/templates/security/admin_login.html:9
+msgid "Please correct the error below."
+msgid_plural "Please correct the errors below."
+msgstr[0] "Por favor, corrija el siguiente error."
+msgstr[1] "Por favor, corrija los siguientes errores."
+msgstr[2] "Por favor, corrija los siguientes errores."
+
+#: security/templates/security/admin_login.html:25
+#, python-format
+msgid "You are authenticated as %(username)s, but are not authorized to access this page. Would you like to login to a different account?"
+msgstr "Se ha autenticado como %(username)s, pero no está autorizado a acceder a esta página. ¿Desea autenticarse con una cuenta diferente?"
+
+#: security/templates/security/admin_login.html:52
+msgid "Forgotten your login credentials?"
+msgstr "¿Olvidó sus credenciales de inicio de sesión?"
+
+#: security/two_factor.py:42
+msgid "Two-factor authentication is already on."
+msgstr "La autenticación en dos pasos ya está activa."
+
+#: security/two_factor.py:48
+msgid "Two-factor authentication is off."
+msgstr "La autenticación en dos pasos está apagada."
+
+#: security/two_factor.py:56
+msgid "The login expired or is not valid. Log in again."
+msgstr "El inicio de sesión venció o no es válido. Inicie sesión de nuevo."
+
+#: security/two_factor.py:61
+msgid "Too many wrong codes."
+msgstr "Demasiados códigos incorrectos."
+
+#: security/two_factor_api_docs.py:17
+msgid "Answers 404 unless TOTP_ENABLED=True."
+msgstr "Responde 404 salvo con TOTP_ENABLED=True."
+
+#: security/two_factor_api_docs.py:37
+msgid "Get the two-factor state"
+msgstr "Ver el estado de la autenticación en dos pasos"
+
+#: security/two_factor_api_docs.py:47
+msgid "Start the two-factor setup"
+msgstr "Empezar a activar la autenticación en dos pasos"
+
+#: security/two_factor_api_docs.py:49
+msgid "Returns the secret and the otpauth URI for the QR. Nothing changes until the first code confirms it. "
+msgstr "Devuelve el secreto y la URI otpauth para el QR. No cambia nada hasta que el primer código lo confirme. "
+
+#: security/two_factor_api_docs.py:64
+msgid "Turn on two-factor authentication with the first code"
+msgstr "Activar la autenticación en dos pasos con el primer código"
+
+#: security/two_factor_api_docs.py:65
+msgid "The recovery codes are shown only in this answer. "
+msgstr "Los códigos de recuperación se muestran solo en esta respuesta. "
+
+#: security/two_factor_api_docs.py:84
+msgid "Needs the password and a code or a recovery code. "
+msgstr "Pide la contraseña y un código o un código de recuperación. "
+
+#: security/two_factor_api_docs.py:105
+msgid "Replace the recovery codes"
+msgstr "Reemplazar los códigos de recuperación"
+
+#: security/two_factor_api_docs.py:106
+msgid "The old codes stop working. "
+msgstr "Los códigos anteriores dejan de servir. "
+
+#: security/two_factor_api_docs.py:125
+msgid "Finish a login with the second factor"
+msgstr "Terminar un inicio de sesión con el segundo factor"
+
+#: security/two_factor_api_docs.py:127
+msgid "Takes the mfa_token of the login, valid for 5 minutes, and a code or a recovery code. "
+msgstr "Recibe el mfa_token del login, que vale 5 minutos, y un código o un código de recuperación. "
+
+#: security/two_factor_serializers.py:11
+msgid "Invalid or expired code."
+msgstr "Código inválido o vencido."
+
+#: security/two_factor_serializers.py:12
+msgid "Start the setup first."
+msgstr "Primero empiece la activación."
+
+#: security/two_factor_serializers.py:13
+msgid "Send either otp or recovery_code."
+msgstr "Envíe otp o recovery_code, no los dos."

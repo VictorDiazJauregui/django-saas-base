@@ -50,7 +50,7 @@ uv run ruff check .
 uv run python manage.py makemigrations --check --dry-run
 uv run coverage run manage.py test
 uv run coverage report
-uvx pip-audit==2.10.1 -r requirements.txt --no-deps --disable-pip --strict
+uvx pip-audit==2.10.1 -r requirements.txt -r requirements-dev.txt --no-deps --disable-pip --strict
 ```
 
 The commands are the same in bash, zsh, PowerShell and cmd. With pip and a virtual environment,

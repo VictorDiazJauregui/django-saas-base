@@ -46,7 +46,7 @@ jobs:
       # setup-uv only publishes full version tags; there is no floating v10 tag.
       # Without python-version, uv uses the version in .python-version.
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.1
         with:
           enable-cache: true
 

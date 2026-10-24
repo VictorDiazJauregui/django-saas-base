@@ -25,7 +25,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
 coverage==7.16.2
 cryptography==50.0.2
     # via saas
-django==5.2.17
+django==5.2.18
     # via
     #   django-anymail
     #   django-axes

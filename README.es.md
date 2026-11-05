@@ -18,6 +18,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [API](#api)
 - [Email](#email)
 - [Webhooks](#webhooks)
+- [Multi-tenancy](#multi-tenancy)
 - [Auditoría](#auditoría)
 - [Logs](#logs)
 - [Modelos base](#modelos-base)
@@ -48,6 +49,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **Autenticación en dos pasos** con app de autenticación y códigos de recuperación, en la API y en el admin. Apagada por defecto.
 - **Login con Google** que responde como el login por email. Apagado por defecto.
 - **Webhooks** firmados con HMAC, con reintentos y registro de entregas en el admin. Apagados por defecto.
+- **Multi-tenancy** con organizaciones, miembros y roles, y el aislamiento de los datos de cada organización. Apagado por defecto.
 - **Modelos base** con timestamps y borrado lógico opcional, para tus apps.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Imagen de producción:** un `Dockerfile` con gunicorn y whitenoise, un endpoint de health y logs en texto o JSON. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md).
@@ -381,6 +383,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `WEBHOOK_MAX_ATTEMPTS` | Django | Intentos por entrega antes de marcarla como fallida | `5` |
 | `WEBHOOK_TIMEOUT_SECONDS` | Django | Segundos de espera de la respuesta del receptor | `10` |
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` permite receptores en direcciones privadas. Vacía: permitidos solo en `local` y `ci` | *(vacía)* |
+| `TENANCY_ENABLED` | Django | `True` enciende las organizaciones con miembros y roles. Ver [Multi-tenancy](#multi-tenancy) | `False` |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Página del frontend a la que apunta el email de recuperación, con `{uid}` y `{token}`. Obligatoria: sin ella, o sin uno de los marcadores, Django no arranca. Ver [Recuperación de contraseña](#recuperación-de-contraseña) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
 | `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutos que dura un link de recuperación | `60` |
 | `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: un registro público entra recién después de seguir el link de su email. Ver [Verificación de email](#verificación-de-email) | `False` |
@@ -1147,6 +1150,111 @@ Continue? [y/N]
 - Las entregas pendientes no se borran nunca, aunque sean viejas: todavía se tienen que mandar.
 - La edad se cuenta desde que la entrega terminó, no desde que se creó. Una entrega creada hace meses y reintentada ayer desde el admin se conserva.
 - `--dry-run` muestra la cantidad y el rango, y `--no-input` borra sin preguntar, para las tareas programadas. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md#5-tareas-programadas).
+
+## Multi-tenancy
+
+Para un SaaS donde varias empresas comparten una instancia, cada una con sus miembros y sus datos. Apagado por defecto: `TENANCY_ENABLED=True` lo enciende. Sin eso la API responde igual que antes y todas las rutas de esta sección dan `404`.
+
+Cada empresa es una **organización**. Un usuario puede pertenecer a varias, con un rol en cada una:
+
+| Rol | Puede |
+|---|---|
+| `owner` | Todo lo de un admin, y además dar y quitar el rol owner. Toda organización conserva al menos un owner |
+| `admin` | Editar la organización y manejar sus miembros |
+| `member` | Leer los datos de la organización |
+
+Todas las organizaciones viven en la misma base. Cada fila de tus modelos lleva la organización a la que pertenece, y la API solo le muestra a un usuario las filas de las organizaciones de las que es miembro.
+
+Por ahora las organizaciones se crean en el admin, en **Organizaciones**: un nombre (el slug sale de ahí) y sus miembros con su rol. La página de cada usuario lista sus organizaciones.
+
+### Modelos de una organización
+
+Heredá de `OrganizationScopedModel` y usá `OrganizationScopedViewSet`:
+
+```python
+# projects/models.py
+from django.db import models
+
+from organizations.models import OrganizationScopedModel
+
+
+class Project(OrganizationScopedModel):
+    name = models.CharField(max_length=100)
+```
+
+```python
+# projects/views.py
+from rest_framework import serializers
+
+from organizations.permissions import HasOrganizationRole, IsOrganizationMember
+from organizations.views import OrganizationScopedViewSet
+
+from .models import Project
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Project
+        fields = ["id", "name"]
+
+
+class ProjectViewSet(OrganizationScopedViewSet):
+    queryset = Project.objects.all()
+    serializer_class = ProjectSerializer
+
+    def get_permissions(self):
+        if self.action == "destroy":
+            return [HasOrganizationRole("admin")]
+        return [IsOrganizationMember()]
+```
+
+```python
+# core/urls.py
+from rest_framework.routers import SimpleRouter
+
+from projects.views import ProjectViewSet
+
+router = SimpleRouter()
+router.register("projects", ProjectViewSet, basename="project")
+
+urlpatterns += [
+    path("api/v1/organizations/<uuid:organization_id>/", include(router.urls)),
+]
+```
+
+- La organización sale de la URL: `GET /api/v1/organizations/<organization_id>/projects/`. El parámetro de la URL se tiene que llamar `organization_id`.
+- El listado, el detalle, la edición y el borrado solo ven las filas de esa organización. Una fila de otra da `404`, como si no existiera.
+- El alta asigna la organización de la URL. Un `organization` en el body se ignora, también al editar, así que una fila no se puede mover a otra organización.
+- La vista recibe `request.organization` y `request.membership` (con su `role`) una vez que pasó el permiso.
+- `OrganizationScopedMixin` hace lo mismo en una vista genérica propia (`ListCreateAPIView` y similares).
+
+### Permisos de una organización
+
+`organizations.permissions` trae dos clases que funcionan como [HasRole](#permisos):
+
+- `IsOrganizationMember` deja pasar a cualquier miembro de la organización de la URL.
+- `HasOrganizationRole("admin")` deja pasar a ese rol o a uno mayor: `owner` > `admin` > `member`. Un rol que no existe frena Django al importar la vista.
+- Se combinan con `&`, `|` y `~`, entre ellas y con las clases de DRF.
+
+| Request | Respuesta |
+|---|---|
+| Sin token | `401` |
+| Una organización que no existe, un id que no es un UUID o una organización de la que el usuario no es miembro | `404` con `code` `organization_not_found`. La misma respuesta para los tres, así nadie averigua qué organizaciones existen |
+| Un miembro sin el rol | `403` con `code` `permission_denied` |
+| Un superusuario que no es miembro | `404`: el staff trabaja las organizaciones desde el admin |
+| `TENANCY_ENABLED=False` | `404` |
+
+Los roles de una organización no tienen nada que ver con los [Roles](#roles) de `sync_roles`: esos valen para toda la instancia.
+
+### Probar el aislamiento
+
+Que los datos de una organización se filtren a otra es el error más caro de un SaaS multi-tenant. Cada vista de una organización lleva un test donde un miembro de la organización A intenta listar, leer, editar, borrar y crear filas de la organización B, y espera `404` en todos los casos. Hay un ejemplo en `organizations/tests/test_scoped_views.py`.
+
+### Apagarlo
+
+Con `TENANCY_ENABLED=False` las rutas de organizaciones vuelven a dar `404`. Las organizaciones, sus miembros y las filas de tus modelos quedan en la base y vuelven al encenderlo.
+
+---
 
 ## Auditoría
 

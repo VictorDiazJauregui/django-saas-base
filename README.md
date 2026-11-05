@@ -18,6 +18,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - [API](#api)
 - [Email](#email)
 - [Webhooks](#webhooks)
+- [Multi-tenancy](#multi-tenancy)
 - [Audit log](#audit-log)
 - [Logging](#logging)
 - [Base models](#base-models)
@@ -48,6 +49,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **Two-factor authentication** with an authenticator app and recovery codes, in the API and the admin. Off by default.
 - **Login with Google** that answers like the email login. Off by default.
 - **Webhooks** signed with HMAC, with retries and a delivery log in the admin. Off by default.
+- **Multi-tenancy** with organizations, members and roles, and the isolation of each organization's data. Off by default.
 - **Base models** with timestamps and an optional soft delete, for your own apps.
 - **Admin panel** to manage users and browse the audit log.
 - **Production image:** a `Dockerfile` with gunicorn and whitenoise, a health endpoint, and logs as text or JSON. See [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -381,6 +383,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `WEBHOOK_MAX_ATTEMPTS` | Django | Attempts per delivery before it is marked as failed | `5` |
 | `WEBHOOK_TIMEOUT_SECONDS` | Django | Seconds to wait for the receiver's answer | `10` |
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` allows receivers on private addresses. Empty: allowed in `local` and `ci` only | *(empty)* |
+| `TENANCY_ENABLED` | Django | `True` turns on organizations with members and roles. See [Multi-tenancy](#multi-tenancy) | `False` |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Frontend page the reset email links to, with `{uid}` and `{token}`. Required: without it, or without a marker, Django doesn't start. See [Password reset](#password-reset) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
 | `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutes a reset link works | `60` |
 | `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: a public registration logs in only after following the link of its email. See [Email verification](#email-verification) | `False` |
@@ -1147,6 +1150,111 @@ Continue? [y/N]
 - Pending deliveries are never deleted, however old: they are still to be sent.
 - The age counts from when the delivery finished, not from when it was created. A delivery created months ago and retried from the admin yesterday is kept.
 - `--dry-run` shows the count and the range, and `--no-input` deletes without asking, for scheduled runs. See [DEPLOYMENT.md](DEPLOYMENT.md#5-scheduled-tasks).
+
+## Multi-tenancy
+
+For a SaaS where several companies share one instance, each with its own members and its own data. Off by default: `TENANCY_ENABLED=True` turns it on. Without it the API answers exactly as before, and every route described here gets `404`.
+
+Every company is an **organization**. A user can belong to several, with one role in each:
+
+| Role | Can |
+|---|---|
+| `owner` | Everything an admin can, plus grant and remove the owner role. Every organization keeps at least one owner |
+| `admin` | Edit the organization and manage its members |
+| `member` | Read the organization's data |
+
+All organizations live in the same database. Each row of your models carries the organization it belongs to, and the API only shows a user the rows of the organizations they are a member of.
+
+For now organizations are created in the admin, under **Organizations**: give it a name (the slug comes from it) and add its members with their role. The user page lists the organizations each user belongs to.
+
+### Models of an organization
+
+Inherit from `OrganizationScopedModel` and use `OrganizationScopedViewSet`:
+
+```python
+# projects/models.py
+from django.db import models
+
+from organizations.models import OrganizationScopedModel
+
+
+class Project(OrganizationScopedModel):
+    name = models.CharField(max_length=100)
+```
+
+```python
+# projects/views.py
+from rest_framework import serializers
+
+from organizations.permissions import HasOrganizationRole, IsOrganizationMember
+from organizations.views import OrganizationScopedViewSet
+
+from .models import Project
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Project
+        fields = ["id", "name"]
+
+
+class ProjectViewSet(OrganizationScopedViewSet):
+    queryset = Project.objects.all()
+    serializer_class = ProjectSerializer
+
+    def get_permissions(self):
+        if self.action == "destroy":
+            return [HasOrganizationRole("admin")]
+        return [IsOrganizationMember()]
+```
+
+```python
+# core/urls.py
+from rest_framework.routers import SimpleRouter
+
+from projects.views import ProjectViewSet
+
+router = SimpleRouter()
+router.register("projects", ProjectViewSet, basename="project")
+
+urlpatterns += [
+    path("api/v1/organizations/<uuid:organization_id>/", include(router.urls)),
+]
+```
+
+- The organization comes from the URL: `GET /api/v1/organizations/<organization_id>/projects/`. The URL kwarg has to be called `organization_id`.
+- The list, detail, update and delete only see the rows of that organization. A row of another one gets `404`, as if it didn't exist.
+- A create assigns the organization of the URL. An `organization` sent in the body is ignored, also on updates, so a row can't move to another organization.
+- The view gets `request.organization` and `request.membership` (with its `role`) once the permission passed.
+- `OrganizationScopedMixin` does the same for a generic view of your own (`ListCreateAPIView` and the like).
+
+### Permissions of an organization
+
+`organizations.permissions` has two classes that work like [HasRole](#permissions):
+
+- `IsOrganizationMember` passes for any member of the organization in the URL.
+- `HasOrganizationRole("admin")` passes for that role or a higher one: `owner` > `admin` > `member`. A role that doesn't exist stops Django when the view is imported.
+- They combine with `&`, `|` and `~`, between themselves and with DRF's classes.
+
+| Request | Answer |
+|---|---|
+| Without a token | `401` |
+| An organization that doesn't exist, an id that isn't a UUID or an organization the user isn't a member of | `404` with `code` `organization_not_found`. The same answer for all three, so nobody learns which organizations exist |
+| A member without the role | `403` with `code` `permission_denied` |
+| A superuser who isn't a member | `404`: staff users work on organizations from the admin |
+| `TENANCY_ENABLED=False` | `404` |
+
+The roles of an organization have nothing to do with the [Roles](#roles) of `sync_roles`: those apply to the whole instance.
+
+### Testing the isolation
+
+Leaking one organization's data to another is the most expensive bug a multi-tenant SaaS can have. Give every view of an organization a test where a member of organization A tries to list, read, change, delete and create rows of organization B, and expects `404` every time. `organizations/tests/test_scoped_views.py` has an example.
+
+### Turning it off
+
+With `TENANCY_ENABLED=False` the organization routes answer `404` again. The organizations, their members and the rows of your models stay in the database and are back when it is turned on.
+
+---
 
 ## Audit log
 

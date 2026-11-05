@@ -104,6 +104,8 @@ Tests live in `<app>/tests/` and use Django's test runner (`django.test.TestCase
 - A model change comes with its migration. `makemigrations --check` must report no changes.
 - A new sensitive field (password, token, key) must be covered by `security/redaction.py`, with a
   test, so it never reaches the audit log in plain text.
+- A view that works on an organization's rows comes with an isolation test: a member of another
+  organization gets `404` when listing, reading, changing, deleting and creating.
 
 ## API changes
 

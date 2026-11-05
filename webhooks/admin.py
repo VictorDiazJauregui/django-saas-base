@@ -1,5 +1,4 @@
 import json
-import secrets
 
 from django.contrib import admin, messages
 from django.template.response import TemplateResponse
@@ -9,10 +8,12 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 
+from organizations.models import Organization
+
+from .endpoint_secrets import generate_webhook_secret
 from .forms import WebhookEndpointForm
 from .models import WebhookDelivery, WebhookEndpoint
 
-SECRET_BYTES = 32
 ENDPOINT_CREATED_TEMPLATE = "admin/webhooks/webhookendpoint/created.html"
 DELIVERY_FIELDS = (
     "event",
@@ -32,8 +33,10 @@ DELIVERY_FIELDS = (
 @admin.register(WebhookEndpoint)
 class WebhookEndpointAdmin(admin.ModelAdmin):
     form = WebhookEndpointForm
-    list_display = ("url", "event_list", "is_active", "created_at")
-    list_filter = ("is_active",)
+    list_display = ("url", "organization", "event_list", "is_active", "created_at")
+    list_filter = (("organization", admin.RelatedOnlyFieldListFilter), "is_active")
+    list_select_related = ("organization",)
+    readonly_fields = ("organization",)
     search_fields = ("url", "description")
 
     @admin.display(description=_("events"))
@@ -42,7 +45,7 @@ class WebhookEndpointAdmin(admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         if not change:
-            obj.secret = secrets.token_urlsafe(SECRET_BYTES)
+            obj.secret = generate_webhook_secret()
         super().save_model(request, obj, form, change)
 
     def response_add(self, request, obj, post_url_continue=None):
@@ -62,13 +65,17 @@ class WebhookDeliveryAdmin(admin.ModelAdmin):
     list_display = (
         "event",
         "endpoint",
+        "endpoint_organization",
         "status",
         "attempts",
         "last_status_code",
         "next_attempt_at",
     )
-    list_filter = ("status",)
-    list_select_related = ("endpoint",)
+    list_filter = (
+        ("endpoint__organization", admin.RelatedOnlyFieldListFilter),
+        "status",
+    )
+    list_select_related = ("endpoint__organization",)
     search_fields = ("event", "endpoint__url")
     fields = (*DELIVERY_FIELDS, "pretty_payload")
     readonly_fields = fields
@@ -86,6 +93,12 @@ class WebhookDeliveryAdmin(admin.ModelAdmin):
 
     def has_retry_permission(self, request):
         return request.user.has_perm("webhooks.change_webhookdelivery")
+
+    @admin.display(
+        description=_("organization"), ordering="endpoint__organization__name"
+    )
+    def endpoint_organization(self, obj: WebhookDelivery) -> Organization | None:
+        return obj.endpoint.organization
 
     @admin.display(description=_("payload"))
     def pretty_payload(self, obj):

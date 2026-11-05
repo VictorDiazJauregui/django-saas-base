@@ -11,6 +11,12 @@ from .organization_views import (
     OrganizationDetailView,
     OrganizationListCreateView,
 )
+from .organization_webhook_views import (
+    OrganizationWebhookDeliveryListView,
+    OrganizationWebhookDetailView,
+    OrganizationWebhookListCreateView,
+    OrganizationWebhookRotateSecretView,
+)
 
 app_name = "organizations"
 
@@ -50,5 +56,25 @@ urlpatterns = [
         "<organization:organization_id>/api-keys/<uuid:key_id>/",
         OrganizationApiKeyRevokeView.as_view(),
         name="api_key",
+    ),
+    path(
+        "<organization:organization_id>/webhooks/",
+        OrganizationWebhookListCreateView.as_view(),
+        name="webhooks",
+    ),
+    path(
+        "<organization:organization_id>/webhooks/<uuid:endpoint_id>/",
+        OrganizationWebhookDetailView.as_view(),
+        name="webhook",
+    ),
+    path(
+        "<organization:organization_id>/webhooks/<uuid:endpoint_id>/rotate-secret/",
+        OrganizationWebhookRotateSecretView.as_view(),
+        name="webhook_rotate_secret",
+    ),
+    path(
+        "<organization:organization_id>/webhooks/<uuid:endpoint_id>/deliveries/",
+        OrganizationWebhookDeliveryListView.as_view(),
+        name="webhook_deliveries",
     ),
 ]

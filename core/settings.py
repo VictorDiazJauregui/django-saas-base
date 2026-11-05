@@ -84,6 +84,7 @@ INSTALLED_APPS = [
     # Local apps
     "security.apps.SecurityConfig",
     "webhooks.apps.WebhooksConfig",
+    "organizations.apps.OrganizationsConfig",
 ]
 
 OPTIONAL_DEVELOPMENT_APPS = ["django_extensions"]
@@ -325,6 +326,11 @@ WEBHOOK_ALLOW_PRIVATE_URLS = parse_optional_bool(
     env.str("WEBHOOK_ALLOW_PRIVATE_URLS", default=""),
     default=not is_deployed(ENVIRONMENT),
 )
+
+# --- Multi-tenancy ---
+# True turns on organizations with members and roles. Off, their routes answer 404 and the
+# tables stay empty.
+TENANCY_ENABLED = env.bool("TENANCY_ENABLED", default=False)
 
 # --- Roles ---
 # The roles sync_roles applies as Django groups. Point it at your own module to declare them.

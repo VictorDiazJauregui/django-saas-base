@@ -7,6 +7,8 @@ from drf_spectacular.generators import SchemaGenerator
 
 AUTH = "/api/v1/auth"
 HEALTH = "/api/v1/health/"
+ORGANIZATIONS = "/api/v1/organizations"
+ORGANIZATION = f"{ORGANIZATIONS}/{{organization_id}}"
 EXPECTED_OPERATIONS = {
     ("post", f"{AUTH}/register/"),
     ("post", f"{AUTH}/login/"),
@@ -27,6 +29,19 @@ EXPECTED_OPERATIONS = {
     ("post", f"{AUTH}/2fa/disable/"),
     ("post", f"{AUTH}/2fa/recovery-codes/"),
     ("get", HEALTH),
+    ("get", f"{ORGANIZATIONS}/"),
+    ("post", f"{ORGANIZATIONS}/"),
+    ("get", f"{ORGANIZATION}/"),
+    ("patch", f"{ORGANIZATION}/"),
+    ("get", f"{ORGANIZATION}/members/"),
+    ("patch", f"{ORGANIZATION}/members/{{membership_id}}/"),
+    ("delete", f"{ORGANIZATION}/members/{{membership_id}}/"),
+    ("get", f"{ORGANIZATION}/invitations/"),
+    ("post", f"{ORGANIZATION}/invitations/"),
+    ("delete", f"{ORGANIZATION}/invitations/{{invitation_id}}/"),
+    ("post", "/api/v1/invitations/lookup/"),
+    ("post", "/api/v1/invitations/accept/"),
+    ("post", "/api/v1/invitations/register/"),
 }
 NO_CONTENT_OPERATIONS = (
     f"{AUTH}/password/change/",
@@ -162,6 +177,19 @@ class OpenApiSchemaTests(SimpleTestCase):
                     self.assertNotIn(
                         "AuditMiddleware", operation.get("description", "")
                     )
+
+    def test_organization_routes_document_the_organization_errors(self):
+        responses = self.operation(
+            "delete", f"{ORGANIZATION}/members/{{membership_id}}/"
+        )["responses"]
+        self.assertEqual(set(responses), {"204", "401", "403", "404", "409"})
+        self.assertNotIn("content", responses["204"])
+
+    def test_public_invitation_routes_ask_for_no_token(self):
+        for path in ("/api/v1/invitations/lookup/", "/api/v1/invitations/register/"):
+            with self.subTest(path=path):
+                security = self.operation("post", path).get("security", [{}])
+                self.assertNotIn({"jwtAuth": []}, security)
 
     def test_health_is_public_and_documents_both_answers(self):
         operation = self.operation("get", HEALTH)

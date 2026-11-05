@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from core.models import TimestampedModel
+from organizations.models import GlobalModel
 
 
 class UserManager(BaseUserManager):
@@ -42,7 +43,7 @@ class UserManager(BaseUserManager):
         return self.create_user(email, password, **extra_fields)
 
 
-class User(AbstractUser):
+class User(AbstractUser, GlobalModel):
     # A random UUID keeps the user count and other users' ids out of tokens and URLs.
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None
@@ -96,7 +97,7 @@ class User(AbstractUser):
         return self.email
 
 
-class AuditLog(models.Model):
+class AuditLog(GlobalModel):
     """
     Model to store audit logs for modification requests.
     """
@@ -138,7 +139,7 @@ class AuditLog(models.Model):
 
 # Only the hash is stored: whoever reads the table, or a backup, can't use the keys. The
 # prefix is the lookup index and what the admin shows to tell keys apart.
-class ApiKey(TimestampedModel):
+class ApiKey(TimestampedModel, GlobalModel):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -170,7 +171,7 @@ class ApiKey(TimestampedModel):
         return self.expires_at is None or self.expires_at > timezone.now()
 
 
-class TotpDevice(TimestampedModel):
+class TotpDevice(TimestampedModel, GlobalModel):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -193,7 +194,7 @@ class TotpDevice(TimestampedModel):
         return str(self.user)
 
 
-class RecoveryCode(models.Model):
+class RecoveryCode(GlobalModel):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -217,7 +218,7 @@ class RecoveryCode(models.Model):
 
 
 # A Google account is recognized by its subject, which never changes; the email can.
-class ExternalIdentity(TimestampedModel):
+class ExternalIdentity(TimestampedModel, GlobalModel):
     GOOGLE = "google"
     PROVIDERS = [(GOOGLE, "Google")]
 

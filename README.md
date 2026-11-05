@@ -49,7 +49,7 @@ It works on **Linux**, **WSL** and **Windows** (PowerShell and cmd).
 - **Two-factor authentication** with an authenticator app and recovery codes, in the API and the admin. Off by default.
 - **Login with Google** that answers like the email login. Off by default.
 - **Webhooks** signed with HMAC, with retries and a delivery log in the admin. Off by default.
-- **Multi-tenancy** with organizations, members and roles, and the isolation of each organization's data. Off by default.
+- **Multi-tenancy** with organizations, members, roles and email invitations, and the isolation of each organization's data. Off by default.
 - **Base models** with timestamps and an optional soft delete, for your own apps.
 - **Admin panel** to manage users and browse the audit log.
 - **Production image:** a `Dockerfile` with gunicorn and whitenoise, a health endpoint, and logs as text or JSON. See [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -357,6 +357,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `THROTTLE_REGISTER_RATE` | Django | Limit for `POST /api/v1/auth/register/` | `5/h` |
 | `THROTTLE_VERIFY_EMAIL_RATE` | Django | Limit for `verify-email/` and `verify-email/resend/` | `5/h` |
 | `THROTTLE_MFA_RATE` | Django | Limit for `login/2fa/` and the `2fa/` routes that check a code | `5/10m` |
+| `THROTTLE_INVITATION_RATE` | Django | Limit for the `invitations/` routes | `10/h` |
 | `THROTTLE_PASSWORD_RATE` | Django | Limit for the password change and the password reset, and for the endpoints you add with `throttle_scope = "password"` | `5/h` |
 | `TRUSTED_PROXY_COUNT` | Django | Proxies in front of Django that append to `X-Forwarded-For`. `0` ignores the header. Used by the rate limits and the audit log. A negative number stops Django from starting | `0` |
 | `CACHE_URL` | Django | Cache where the limits are counted | `locmemcache://` |
@@ -384,6 +385,8 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `WEBHOOK_TIMEOUT_SECONDS` | Django | Seconds to wait for the receiver's answer | `10` |
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` allows receivers on private addresses. Empty: allowed in `local` and `ci` only | *(empty)* |
 | `TENANCY_ENABLED` | Django | `True` turns on organizations with members and roles. See [Multi-tenancy](#multi-tenancy) | `False` |
+| `FRONTEND_INVITATION_URL` | Django | Frontend page the invitation email links to, with `{token}`. Required with `TENANCY_ENABLED=True`: without it Django doesn't start. See [Invitations](#invitations) | `'http://localhost:3000/join?token={token}'` |
+| `TENANCY_INVITATION_TIMEOUT_HOURS` | Django | Hours an invitation link works | `72` |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Frontend page the reset email links to, with `{uid}` and `{token}`. Required: without it, or without a marker, Django doesn't start. See [Password reset](#password-reset) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
 | `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutes a reset link works | `60` |
 | `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: a public registration logs in only after following the link of its email. See [Email verification](#email-verification) | `False` |
@@ -1078,7 +1081,7 @@ Webhooks tell other systems that something happened in your app: an `HTTP POST` 
 
 **Subscribing.** In the admin, under **Webhook endpoints**, add the receiver's URL and the events it wants, separated by commas. The next page shows the signing secret, once: give it to whoever runs the receiver.
 
-**Emitting.** The base emits `user.registered` (public registration and new accounts from Google) and `user.email_verified`, with `{"user_id": "...", "email": "..."}`. Your code emits its own events like this:
+**Emitting.** The base emits `user.registered` (public registration and new accounts from Google) and `user.email_verified`, with `{"user_id": "...", "email": "..."}`, and with multi-tenancy on, the [organization events](#webhook-events). Your code emits its own events like this:
 
 ```python
 from webhooks.events import emit_webhook_event
@@ -1165,7 +1168,77 @@ Every company is an **organization**. A user can belong to several, with one rol
 
 All organizations live in the same database. Each row of your models carries the organization it belongs to, and the API only shows a user the rows of the organizations they are a member of.
 
-For now organizations are created in the admin, under **Organizations**: give it a name (the slug comes from it) and add its members with their role. The user page lists the organizations each user belongs to.
+Create an organization with `POST /api/v1/organizations/` (the user who creates it becomes its owner) or in the admin, under **Organizations**. The user page of the admin lists the organizations each user belongs to.
+
+### Organizations and members API
+
+All routes need `Authorization: Bearer <access>` (or an API key) and answer `404` with `TENANCY_ENABLED=False`.
+
+| Method and route | Who | What it does |
+|---|---|---|
+| `GET /api/v1/organizations/` | Any user | The user's organizations, paginated, each with `role` |
+| `POST /api/v1/organizations/` | Any user | Creates one with `name` and an optional `slug` (it comes from the name otherwise, with `-2`, `-3`… if it's taken). `201` |
+| `GET /api/v1/organizations/<organization_id>/` | member | `id`, `name`, `slug`, `role` and `created_at` |
+| `PATCH /api/v1/organizations/<organization_id>/` | admin | Changes `name` and `slug`. A slug in use: `400` in `fields.slug` |
+| `GET /api/v1/organizations/<organization_id>/members/` | member | Members, paginated: `id` of the membership, `user` (`id`, `email`, `first_name`, `last_name`), `role` and `created_at` |
+| `PATCH /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin | Changes `role` |
+| `DELETE /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin, or the member to leave | `204` |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/organizations/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corp"}'
+```
+
+In PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/ `
+  -Headers @{ Authorization = "Bearer <access>" } -ContentType "application/json" `
+  -Body '{"name": "Acme Corp"}'
+```
+
+- Admins change and remove members and admins; only an owner gives or takes the owner role, or removes an owner. Otherwise: `403` with `code` `permission_denied`.
+- A change that would leave the organization without owners gets `409` with `code` `last_owner`. To leave as the last owner, make someone else owner first.
+- Organizations are deleted only in the admin, which lists everything that goes with them before confirming.
+
+### Invitations
+
+An admin invites someone by email; the email links to `FRONTEND_INVITATION_URL`, with `{token}` replaced. That frontend page sends the token back to the API.
+
+| Method and route | Who | What it does |
+|---|---|---|
+| `GET /api/v1/organizations/<organization_id>/invitations/` | admin | Pending invitations, without their token |
+| `POST /api/v1/organizations/<organization_id>/invitations/` | admin | `email` and `role`. Sends the email. `201` |
+| `DELETE /api/v1/organizations/<organization_id>/invitations/<invitation_id>/` | admin | Revokes it. `204` |
+| `POST /api/v1/invitations/lookup/` | Public | `token` → `organization`, `email`, `role`, `expires_at` and `account_exists` |
+| `POST /api/v1/invitations/accept/` | The invited user, logged in | `token`. Answers like an item of `GET /organizations/` |
+| `POST /api/v1/invitations/register/` | Public | `token`, `password`, `password2`, `first_name`, `last_name`. Creates the account and joins. `201` |
+
+- `account_exists` tells the frontend whether to show a login (then `accept/`) or a sign-up form (`register/`).
+- `register/` works also with `ALLOW_PUBLIC_REGISTRATION=False`, and the account starts verified: following the link proves the email. After it, the user logs in as usual. If the email already has an account: `409` with `code` `account_exists`.
+- `accept/` needs the account of the invited email: another one gets `403` with `code` `invitation_email_mismatch`.
+- A token that doesn't exist, expired, was revoked or was used gets `400` with `code` `invalid_invitation`, the same answer for all of them.
+- Only an owner invites owners. Someone who is already a member: `409` with `code` `already_member`. Inviting the same email again replaces the pending invitation, and the old link stops working.
+- The token works once and expires after `TENANCY_INVITATION_TIMEOUT_HOURS` (72 by default). The database keeps only its SHA-256 hash, and the audit log stores it as `[REDACTED]`.
+- The public routes count requests per IP with `THROTTLE_INVITATION_RATE` (`10/h`).
+- The admin lists the invitations with their status and revokes them with **Revoke selected invitations**. They are created only from the API, which sends the email.
+
+### Webhook events
+
+With [Webhooks](#webhooks) on, the base emits three more events:
+
+| Event | When | Data |
+|---|---|---|
+| `organization.created` | `POST /api/v1/organizations/` | `organization_id`, `name`, `slug`, `owner_id`, `owner_email` |
+| `organization.member_added` | An invitation is accepted, with `accept/` or `register/` | `organization_id`, `user_id`, `email`, `role` |
+| `organization.member_removed` | A member is removed or leaves | `organization_id`, `user_id`, `email`, `role`, `removed_by_id` |
+
+### Trying it
+
+1. In `.env`: `TENANCY_ENABLED=True` and `FRONTEND_INVITATION_URL='http://localhost:3000/join?token={token}'`. Without the URL Django doesn't start.
+2. Start as usual (`python manage.py runserver`, or `docker compose --profile app up --build` for the production image). There is nothing extra to install or migrate besides `migrate`.
+3. Log in, create an organization with `POST /api/v1/organizations/` and invite someone. With `EMAIL_URL` empty the email, with its link, is printed in the console.
 
 ### Models of an organization
 

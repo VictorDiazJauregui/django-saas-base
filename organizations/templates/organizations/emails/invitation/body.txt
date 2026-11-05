@@ -1,0 +1,10 @@
+{# Plain text: escaping would turn the & of the link into &amp;. #}{% load i18n %}{% autoescape off %}{% if inviter_email %}{% blocktranslate trimmed %}{{ inviter_email }} invited you to join {{ organization_name }} as {{ role }}.{% endblocktranslate %}{% else %}{% blocktranslate trimmed %}You were invited to join {{ organization_name }} as {{ role }}.{% endblocktranslate %}{% endif %} {% translate "To accept, open this link:" %}
+
+{{ invitation_url }}
+
+{% blocktranslate count hours=timeout_hours trimmed %}
+The link works once and expires in {{ hours }} hour.
+{% plural %}
+The link works once and expires in {{ hours }} hours.
+{% endblocktranslate %}
+{% translate "If you weren't expecting it, ignore this email." %}{% endautoescape %}

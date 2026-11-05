@@ -7,6 +7,14 @@ from core.views import HealthView
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/auth/", include("security.urls", namespace="security")),
+    path(
+        "api/v1/organizations/",
+        include("organizations.urls", namespace="organizations"),
+    ),
+    path(
+        "api/v1/invitations/",
+        include("organizations.invitation_urls", namespace="invitations"),
+    ),
     path("api/v1/health/", HealthView.as_view(), name="health"),
     path("api/schema/", ApiSchemaView.as_view(), name="schema"),
     path("api/docs/", ApiDocsView.as_view(url_name="schema"), name="docs"),

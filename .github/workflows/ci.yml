@@ -109,4 +109,5 @@ jobs:
           SECRET_KEY: ci-only-production-like-secret-key-0123456789-abcdefghij
           EMAIL_URL: smtp+tls://smtp.example.com:587
           TENANCY_ENABLED: "True"
+          FRONTEND_INVITATION_URL: "https://app.example.com/join?token={token}"
         run: uv run python manage.py check --deploy --fail-level WARNING

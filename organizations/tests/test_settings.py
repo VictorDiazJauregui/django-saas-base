@@ -8,5 +8,9 @@ class TenancySettingsTests(SimpleTestCase):
         self.assertEqual(read_settings(["TENANCY_ENABLED"]), {"TENANCY_ENABLED": False})
 
     def test_the_environment_turns_it_on(self):
-        settings = read_settings(["TENANCY_ENABLED"], TENANCY_ENABLED="True")
+        settings = read_settings(
+            ["TENANCY_ENABLED"],
+            TENANCY_ENABLED="True",
+            FRONTEND_INVITATION_URL="https://app.example.com/join?token={token}",
+        )
         self.assertEqual(settings, {"TENANCY_ENABLED": True})

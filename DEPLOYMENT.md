@@ -40,6 +40,7 @@ Give the container the variables of `.env.example`, with these ones set for the 
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Your database |
 | `EMAIL_URL` | An SMTP server: without it the reset emails only reach the log |
 | `FRONTEND_PASSWORD_RESET_URL` | The frontend page with `{uid}` and `{token}` |
+| `TENANCY_ENABLED`, `FRONTEND_INVITATION_URL` | Only with multi-tenancy: `True` and the frontend page with `{token}`. See [Multi-tenancy](README.md#multi-tenancy) |
 | `USE_X_FORWARDED_PROTO`, `TRUSTED_PROXY_COUNT` | `True` and `1` behind a proxy or load balancer that terminates TLS |
 | `LOG_FORMAT` | `json` if a log collector reads the output. See [Logging](README.md#logging) |
 | `WEB_CONCURRENCY` | gunicorn workers. Start with `2` per CPU core plus `1` |

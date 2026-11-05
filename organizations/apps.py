@@ -6,3 +6,6 @@ class OrganizationsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "organizations"
     verbose_name = _("Organizations")
+
+    def ready(self):
+        from organizations import checks  # noqa: F401 - registers the system checks

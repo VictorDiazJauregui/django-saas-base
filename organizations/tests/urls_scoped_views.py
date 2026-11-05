@@ -11,7 +11,7 @@ from .scoped_project import (
 router = SimpleRouter()
 router.register("projects", ProjectViewSet, basename="project")
 
-ORGANIZATION_PREFIX = "api/v1/organizations/<uuid:organization_id>/"
+ORGANIZATION_PREFIX = "api/v1/organizations/<organization:organization_id>/"
 
 urlpatterns = [
     path(ORGANIZATION_PREFIX, include(router.urls)),

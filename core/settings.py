@@ -390,6 +390,7 @@ THROTTLE_RATE_DEFAULTS = {
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "organizations.authentication.OrganizationApiKeyAuthentication",
         "security.authentication.ApiKeyAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
@@ -431,6 +432,17 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    # Members and organization keys both have a role; the keys' set leaves owner out.
+    "ENUM_NAME_OVERRIDES": {
+        "RoleEnum": "organizations.roles.OrganizationRole",
+        "OrganizationApiKeyRoleEnum": "organizations.roles.ORGANIZATION_API_KEY_ROLES",
+    },
+    "PATH_CONVERTER_OVERRIDES": {
+        "organization": {
+            "type": "string",
+            "description": "UUID or slug of the organization.",
+        },
+    },
 }
 
 # --- JWT ---

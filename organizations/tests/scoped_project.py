@@ -41,7 +41,7 @@ class MembershipEchoView(APIView):
 
     def get(self, request, organization_id):
         return Response(
-            {"slug": request.organization.slug, "role": request.membership.role}
+            {"slug": request.organization.slug, "role": request.organization_role}
         )
 
 

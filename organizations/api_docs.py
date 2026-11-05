@@ -12,7 +12,12 @@ from .serializers import (
 
 ORGANIZATIONS_TAG = "organizations"
 MODULE_OFF = _("Answers 404 unless TENANCY_ENABLED=True.")
-ORGANIZATION_ERRORS = ("not_authenticated", "token_not_valid", "organization_not_found")
+ORGANIZATION_ERRORS = (
+    "not_authenticated",
+    "token_not_valid",
+    "organization_not_found",
+    "organization_api_key_not_allowed",
+)
 
 organization_list_schema = extend_schema(
     tags=[ORGANIZATIONS_TAG],

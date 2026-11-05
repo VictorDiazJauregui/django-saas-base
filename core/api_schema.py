@@ -54,6 +54,11 @@ ERROR_EXAMPLES = {
         {},
     ),
     "organization_not_found": (404, "Organization not found.", {}),
+    "organization_api_key_not_allowed": (
+        403,
+        "Organization API keys can't use this route.",
+        {},
+    ),
     "last_owner": (409, "An organization needs at least one owner.", {}),
     "already_member": (
         409,

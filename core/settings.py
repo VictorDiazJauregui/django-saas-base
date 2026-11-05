@@ -175,6 +175,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Tests hash passwords with a fast hasher; the app keeps Django's default.
+TEST_RUNNER = "core.test_runner.FastPasswordHashingTestRunner"
+
 # --- Custom User Model ---
 AUTH_USER_MODEL = "security.User"
 
@@ -327,6 +330,17 @@ WEBHOOK_ALLOW_PRIVATE_URLS = parse_optional_bool(
     env.str("WEBHOOK_ALLOW_PRIVATE_URLS", default=""),
     default=not is_deployed(ENVIRONMENT),
 )
+# With multi-tenancy on, each organization adds its own endpoints by the API, up to this many
+# active or not, so one organization can't flood the worker.
+WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT = parse_positive_int(
+    "WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT",
+    env.str("WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT", default="10"),
+)
+# The events an organization can subscribe to; add your own, emitted with organization=.
+WEBHOOK_ORGANIZATION_EVENTS = [
+    "organization.member_added",
+    "organization.member_removed",
+]
 
 # --- Multi-tenancy ---
 # True turns on organizations with members and roles. Off, their routes answer 404 and the
@@ -390,6 +404,7 @@ THROTTLE_RATE_DEFAULTS = {
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "organizations.authentication.OrganizationApiKeyAuthentication",
         "security.authentication.ApiKeyAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
@@ -431,6 +446,19 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    # Members and organization keys both have a role (the keys' set leaves owner out), and a
+    # generic StatusEnum would clash with the next model that has a status.
+    "ENUM_NAME_OVERRIDES": {
+        "RoleEnum": "organizations.roles.OrganizationRole",
+        "OrganizationApiKeyRoleEnum": "organizations.roles.ORGANIZATION_API_KEY_ROLES",
+        "WebhookDeliveryStatusEnum": "webhooks.models.WebhookDelivery.STATUSES",
+    },
+    "PATH_CONVERTER_OVERRIDES": {
+        "organization": {
+            "type": "string",
+            "description": "UUID or slug of the organization.",
+        },
+    },
 }
 
 # --- JWT ---

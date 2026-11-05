@@ -17,3 +17,10 @@ ROLE_RANKS = {
 
 def role_includes(held_role, required_role):
     return ROLE_RANKS[held_role] >= ROLE_RANKS[required_role]
+
+
+# An organization key never owns the organization: owners are people who can be held to account.
+ORGANIZATION_API_KEY_ROLES = [
+    (OrganizationRole.ADMIN.value, OrganizationRole.ADMIN.label),
+    (OrganizationRole.MEMBER.value, OrganizationRole.MEMBER.label),
+]

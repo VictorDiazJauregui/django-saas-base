@@ -5,8 +5,10 @@ from drf_spectacular.utils import extend_schema_view
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
+from .active_organization import find_request_organization_api_key
 from .api_docs import (
     member_list_schema,
     member_remove_schema,
@@ -16,7 +18,7 @@ from .api_docs import (
     organization_read_schema,
     organization_update_schema,
 )
-from .api_errors import LastOwnerConflict
+from .api_errors import LastOwnerConflict, OrganizationApiKeyNotAllowed
 from .membership_changes import (
     LastOwnerError,
     MembershipChangeDenied,
@@ -34,11 +36,14 @@ from .serializers import (
 )
 
 
-# With the module off the routes don't exist, as before it was added.
+# With the module off the routes don't exist, as before it was added. The routes of the module
+# manage the organization itself, which an organization key never does.
 class TenancyModuleMixin:
-    def initial(self, request, *args, **kwargs):
+    def initial(self, request: Request, *args, **kwargs) -> None:
         if not settings.TENANCY_ENABLED:
             raise NotFound
+        if find_request_organization_api_key(request) is not None:
+            raise OrganizationApiKeyNotAllowed
         super().initial(request, *args, **kwargs)
 
 

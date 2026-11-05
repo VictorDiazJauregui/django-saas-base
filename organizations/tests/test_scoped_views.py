@@ -112,10 +112,14 @@ class OrganizationScopedSchemaTests(APITestCase):
         view = ProjectViewSet(swagger_fake_view=True)
         self.assertFalse(view.get_queryset().exists())
 
-    def test_the_organization_id_is_documented_as_a_uuid_path_parameter(self):
+    def test_the_organization_is_documented_as_a_uuid_or_slug_path_parameter(self):
         patterns = [path(ORGANIZATION_PREFIX, include(router.urls))]
         schema = SchemaGenerator(patterns=patterns).get_schema(public=True)
         operation = schema["paths"]["/api/v1/organizations/{organization_id}/projects/"]
         parameter = operation["get"]["parameters"][0]
         self.assertEqual(parameter["name"], "organization_id")
-        self.assertEqual(parameter["schema"], {"type": "string", "format": "uuid"})
+        expected = {
+            "type": "string",
+            "description": "UUID or slug of the organization.",
+        }
+        self.assertEqual(parameter["schema"], expected)

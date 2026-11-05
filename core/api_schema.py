@@ -54,10 +54,20 @@ ERROR_EXAMPLES = {
         {},
     ),
     "organization_not_found": (404, "Organization not found.", {}),
+    "organization_api_key_not_allowed": (
+        403,
+        "Organization API keys can't use this route.",
+        {},
+    ),
     "last_owner": (409, "An organization needs at least one owner.", {}),
     "already_member": (
         409,
         "This person is already a member of the organization.",
+        {},
+    ),
+    "webhook_endpoint_limit_reached": (
+        409,
+        "This organization has reached its limit of webhook endpoints.",
         {},
     ),
     "invalid_invitation": (400, "This invitation is not valid or has expired.", {}),

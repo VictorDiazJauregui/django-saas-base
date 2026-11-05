@@ -374,7 +374,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `ANYMAIL_*` | Django | Settings of that provider, such as `ANYMAIL_RESEND_API_KEY` | — |
 | `DEFAULT_FROM_EMAIL` | Django | Sender of the emails the project sends | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` closes `POST /api/v1/auth/register/` with `403`. See [Public registration](#public-registration) | `True` |
-| `API_KEYS_ENABLED` | Django | `True` accepts `Authorization: Api-Key <key>`, with keys created in the admin. See [API keys](#api-keys) | `False` |
+| `API_KEYS_ENABLED` | Django | `True` accepts `Authorization: Api-Key <key>`, with keys created in the admin. With `TENANCY_ENABLED=True` it also turns on the organization keys. See [API keys](#api-keys) | `False` |
 | `TOTP_ENABLED` | Django | `True` lets users add a second factor with an authenticator app. See [Two-factor authentication](#two-factor-authentication) | `False` |
 | `TOTP_ENCRYPTION_KEY` | Django | Fernet key that encrypts the second-factor secrets. Required with `TOTP_ENABLED=True`; never change it | *(empty)* |
 | `TOTP_ISSUER` | Django | Name the authenticator app shows next to the account | *(empty)* |
@@ -384,6 +384,7 @@ Official guides: [Docker Desktop tour](https://docs.docker.com/desktop/use-deskt
 | `WEBHOOK_MAX_ATTEMPTS` | Django | Attempts per delivery before it is marked as failed | `5` |
 | `WEBHOOK_TIMEOUT_SECONDS` | Django | Seconds to wait for the receiver's answer | `10` |
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` allows receivers on private addresses. Empty: allowed in `local` and `ci` only | *(empty)* |
+| `WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT` | Django | Webhook endpoints each organization can add by the API, active or not. See [Organization webhooks](#organization-webhooks) | `10` |
 | `TENANCY_ENABLED` | Django | `True` turns on organizations with members and roles. See [Multi-tenancy](#multi-tenancy) | `False` |
 | `FRONTEND_INVITATION_URL` | Django | Frontend page the invitation email links to, with `{token}`. Required with `TENANCY_ENABLED=True`: without it Django doesn't start. See [Invitations](#invitations) | `'http://localhost:3000/join?token={token}'` |
 | `TENANCY_INVITATION_TIMEOUT_HOURS` | Django | Hours an invitation link works | `72` |
@@ -1012,6 +1013,7 @@ For another server that calls the API without a user logging in: a billing syste
 - To revoke, select the keys in the admin and run **Revoke selected API keys**. It takes effect on the next request. A key can't be edited: create a new one and revoke the old one.
 - The admin shows when each key was last used. The audit log records the requests under the key's user, and the header is never stored.
 - With `API_KEYS_ENABLED=False`, an `Api-Key` header is ignored and the request gets the usual `401`. The keys stay in the database and work again when the flag is turned back on.
+- With multi-tenancy on, a key can also belong to an organization instead of a user: see [Organization API keys](#organization-api-keys).
 
 ### CORS
 
@@ -1089,6 +1091,20 @@ from webhooks.events import emit_webhook_event
 emit_webhook_event("invoice.paid", {"invoice_id": invoice.pk, "total": str(invoice.total)})
 ```
 
+An event that belongs to an organization passes it with `organization=`. It reaches the platform endpoints and the [endpoints of that organization](#organization-webhooks), never those of another one. Add its name to `WEBHOOK_ORGANIZATION_EVENTS` in `core/settings.py` so organizations can subscribe to it:
+
+```python
+WEBHOOK_ORGANIZATION_EVENTS = [
+    "organization.member_added",
+    "organization.member_removed",
+    "invoice.paid",
+]
+
+emit_webhook_event("invoice.paid", {"invoice_id": str(invoice.pk)}, organization=invoice.organization)
+```
+
+The data goes to that organization's receivers: put in it only what belongs to that organization. Without `organization=`, the event reaches only the platform endpoints, as before.
+
 The data has to be JSON. The delivery is stored in the same database transaction as your change: if the change rolls back, nothing is sent, and if it commits, it is delivered even if the process stops right after.
 
 **Sending.** A separate process sends the deliveries:
@@ -1105,11 +1121,11 @@ Run it next to the app (see [DEPLOYMENT.md](DEPLOYMENT.md#webhook-worker)). Seve
 ```http
 POST /hooks HTTP/1.1
 Content-Type: application/json
-Webhook-Id: 42
+Webhook-Id: 3f2b8c1e-5a4d-4e7b-9c61-0d2a7e9b4f10
 Webhook-Event: invoice.paid
 Webhook-Signature: t=1792488000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
 
-{"id":"42","event":"invoice.paid","created_at":"2026-10-20T10:40:00.123456+00:00","data":{"invoice_id":7,"total":"120.00"}}
+{"id":"3f2b8c1e-5a4d-4e7b-9c61-0d2a7e9b4f10","event":"invoice.paid","created_at":"2026-10-20T10:40:00.123456+00:00","data":{"invoice_id":7,"total":"120.00"}}
 ```
 
 `v1` is the HMAC-SHA256 of `"<t>.<body>"` with the secret. The receiver checks it and rejects old timestamps, so a captured request can't be replayed:
@@ -1128,12 +1144,12 @@ def is_valid_webhook(secret, signature_header, body, tolerance=300):
     return fresh and hmac.compare_digest(expected, parts["v1"])
 ```
 
-`Webhook-Id` is the same in every retry of a delivery: use it to ignore one already processed.
+`Webhook-Id` is a UUID, the same in every retry of a delivery: use it to ignore one already processed.
 
 **Retries.** A `2xx` answer marks the delivery as succeeded. Anything else, a redirect included, or no answer in `WEBHOOK_TIMEOUT_SECONDS`, is retried after about 1 minute, 5 minutes, 30 minutes, 2 hours and 12 hours, up to `WEBHOOK_MAX_ATTEMPTS` attempts in all (5 by default). Then it is marked as failed. The admin lists every delivery with its status, attempts and last answer, and **Retry now** queues the selected ones again.
 
 - Redirects are not followed: a `3xx` counts as a failure.
-- In `staging` and `prod`, URLs that resolve to a private, loopback or link-local address are refused, in the admin and when sending, so an endpoint can't make the server call its own network or the cloud metadata service. `WEBHOOK_ALLOW_PRIVATE_URLS=True` allows them, for example for a receiver inside the same network. In `local` and `ci` they are allowed.
+- In `staging` and `prod`, URLs that resolve to a private, loopback or link-local address are refused, in the admin and when sending, so an endpoint can't make the server call its own network or the cloud metadata service. `WEBHOOK_ALLOW_PRIVATE_URLS=True` allows them, for example for a receiver inside the same network. In `local` and `ci` they are allowed. With multi-tenancy on, it also applies to the endpoints each organization adds by the API: turning it on lets your customers point at your internal network.
 - With `WEBHOOKS_ENABLED=False`, `emit_webhook_event` stores nothing. The deliveries already stored are still sent by `deliver_webhooks`.
 - The deliveries table only grows: delete the old ones with `purge_webhook_deliveries`.
 
@@ -1172,17 +1188,17 @@ Create an organization with `POST /api/v1/organizations/` (the user who creates 
 
 ### Organizations and members API
 
-All routes need `Authorization: Bearer <access>` (or an API key) and answer `404` with `TENANCY_ENABLED=False`.
+All routes need `Authorization: Bearer <access>` (or a personal API key) and answer `404` with `TENANCY_ENABLED=False`. `<organization>` is the id or the slug.
 
 | Method and route | Who | What it does |
 |---|---|---|
 | `GET /api/v1/organizations/` | Any user | The user's organizations, paginated, each with `role` |
 | `POST /api/v1/organizations/` | Any user | Creates one with `name` and an optional `slug` (it comes from the name otherwise, with `-2`, `-3`… if it's taken). `201` |
-| `GET /api/v1/organizations/<organization_id>/` | member | `id`, `name`, `slug`, `role` and `created_at` |
-| `PATCH /api/v1/organizations/<organization_id>/` | admin | Changes `name` and `slug`. A slug in use: `400` in `fields.slug` |
-| `GET /api/v1/organizations/<organization_id>/members/` | member | Members, paginated: `id` of the membership, `user` (`id`, `email`, `first_name`, `last_name`), `role` and `created_at` |
-| `PATCH /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin | Changes `role` |
-| `DELETE /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin, or the member to leave | `204` |
+| `GET /api/v1/organizations/<organization>/` | member | `id`, `name`, `slug`, `role` and `created_at` |
+| `PATCH /api/v1/organizations/<organization>/` | admin | Changes `name` and `slug`. A slug in use: `400` in `fields.slug` |
+| `GET /api/v1/organizations/<organization>/members/` | member | Members, paginated: `id` of the membership, `user` (`id`, `email`, `first_name`, `last_name`), `role` and `created_at` |
+| `PATCH /api/v1/organizations/<organization>/members/<membership_id>/` | admin | Changes `role` |
+| `DELETE /api/v1/organizations/<organization>/members/<membership_id>/` | admin, or the member to leave | `204` |
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/organizations/ \
@@ -1202,15 +1218,28 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/ 
 - A change that would leave the organization without owners gets `409` with `code` `last_owner`. To leave as the last owner, make someone else owner first.
 - Organizations are deleted only in the admin, which lists everything that goes with them before confirming.
 
+### Id or slug in the route
+
+`<organization>` in every route below `/api/v1/organizations/` is the organization's `id` or its `slug`: `/api/v1/organizations/acme/members/` answers exactly like `/api/v1/organizations/3f2b…/members/`, with the same permissions. A slug that doesn't exist or belongs to an organization the user isn't a member of gets the same `404` with `code` `organization_not_found` as an id.
+
+- A slug uses lowercase letters, digits, `-` and `_`, and can't have the shape of a UUID (with or without hyphens), so it is never mistaken for an id. Otherwise: `400` in `fields.slug`. A slug made from the name never has that shape.
+- `id` is the stable identifier and the one the API returns. Changing the slug breaks every link saved with the old one: it gets `404` from then on.
+- The backend doesn't read the domain. A frontend on subdomains (`acme.yourapp.com`) reads the first label of the host and puts it in the route; the subdomain gives no access by itself, the membership is checked as always:
+
+  ```js
+  const organization = window.location.hostname.split(".")[0];
+  fetch(`/api/v1/organizations/${organization}/members/`, { headers });
+  ```
+
 ### Invitations
 
 An admin invites someone by email; the email links to `FRONTEND_INVITATION_URL`, with `{token}` replaced. That frontend page sends the token back to the API.
 
 | Method and route | Who | What it does |
 |---|---|---|
-| `GET /api/v1/organizations/<organization_id>/invitations/` | admin | Pending invitations, without their token |
-| `POST /api/v1/organizations/<organization_id>/invitations/` | admin | `email` and `role`. Sends the email. `201` |
-| `DELETE /api/v1/organizations/<organization_id>/invitations/<invitation_id>/` | admin | Revokes it. `204` |
+| `GET /api/v1/organizations/<organization>/invitations/` | admin | Pending invitations, without their token |
+| `POST /api/v1/organizations/<organization>/invitations/` | admin | `email` and `role`. Sends the email. `201` |
+| `DELETE /api/v1/organizations/<organization>/invitations/<invitation_id>/` | admin | Revokes it. `204` |
 | `POST /api/v1/invitations/lookup/` | Public | `token` → `organization`, `email`, `role`, `expires_at` and `account_exists` |
 | `POST /api/v1/invitations/accept/` | The invited user, logged in | `token`. Answers like an item of `GET /organizations/` |
 | `POST /api/v1/invitations/register/` | Public | `token`, `password`, `password2`, `first_name`, `last_name`. Creates the account and joins. `201` |
@@ -1224,15 +1253,101 @@ An admin invites someone by email; the email links to `FRONTEND_INVITATION_URL`,
 - The public routes count requests per IP with `THROTTLE_INVITATION_RATE` (`10/h`).
 - The admin lists the invitations with their status and revokes them with **Revoke selected invitations**. They are created only from the API, which sends the email.
 
+### Organization API keys
+
+Keys that belong to an organization instead of a person: an ERP or an accounting system connects with one, and it keeps working when whoever created it leaves the organization. They need `TENANCY_ENABLED=True` and `API_KEYS_ENABLED=True`; with either off, the routes get `404` and the key gets `401`.
+
+| Method and route | Who | What it does |
+|---|---|---|
+| `GET /api/v1/organizations/<organization>/api-keys/` | admin | Active and revoked keys: `id`, `name`, `prefix`, `role`, `created_by_email`, `expires_at`, `last_used_at`, `revoked_at`, `created_at` |
+| `POST /api/v1/organizations/<organization>/api-keys/` | admin | `name`, `role` (`admin` or `member`, never `owner`) and an optional future `expires_at`. `201` with the same fields plus `api_key` |
+| `DELETE /api/v1/organizations/<organization>/api-keys/<key_id>/` | admin | Revokes it; the record stays. `204` |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/organizations/acme/api-keys/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"name": "ERP", "role": "member"}'
+```
+
+In PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/acme/api-keys/ `
+  -Headers @{ Authorization = "Bearer <access>" } -ContentType "application/json" `
+  -Body '{"name": "ERP", "role": "member"}'
+```
+
+- `api_key` shows up once, in that answer. The database keeps only its SHA-256 hash and the prefix (`org_` and 12 characters), and the audit log stores it as `[REDACTED]`.
+- The other system sends it as `Authorization: Api-Key <key>`, the same header as a personal key.
+- A key works only on the routes of its organization that use `IsOrganizationMember`, `HasOrganizationRole` or `OrganizationScopedViewSet`, with its role. On another organization: `404` with `code` `organization_not_found`.
+- It never manages the module: the organization, members, invitations and keys answer `403` with `code` `organization_api_key_not_allowed`, also for reading. Any other route that needs a person (`IsAuthenticated`, `/api/v1/auth/me/`) answers `403` with `code` `permission_denied`.
+- A revoked or expired key, or a wrong one, gets the same `401` as a personal key: `{"code": "invalid_api_key", "detail": "Invalid API key.", "fields": {}}`.
+- The admin lists them under **Organization API keys**, searches by prefix, creates them (the next page shows the key once) and revokes them with **Revoke selected API keys**. `last_used_at` is written at most once every 5 minutes.
+- The audit log records what a key does with `api_key_prefix` and `organization_id`, and no user.
+
+| | Personal key | Organization key |
+|---|---|---|
+| Belongs to | A user | An organization |
+| Created by | Staff, in the admin | An admin of the organization, by the API, or staff in the admin |
+| Acts as | Its user, with all of their permissions | Itself, with a role in one organization |
+| Stops working when | Its user is deactivated | It's revoked or expires |
+| Switches | `API_KEYS_ENABLED` | `TENANCY_ENABLED` and `API_KEYS_ENABLED` |
+
 ### Webhook events
 
-With [Webhooks](#webhooks) on, the base emits three more events:
+With [Webhooks](#webhooks) on, the base emits three more events, each with its organization:
 
-| Event | When | Data |
+| Event | When | Data | Organization endpoints |
+|---|---|---|---|
+| `organization.created` | `POST /api/v1/organizations/` | `organization_id`, `name`, `slug`, `owner_id`, `owner_email` | No: the organization has no endpoints yet when it's created |
+| `organization.member_added` | An invitation is accepted, with `accept/` or `register/` | `organization_id`, `user_id`, `email`, `role` | Yes |
+| `organization.member_removed` | A member is removed or leaves | `organization_id`, `user_id`, `email`, `role`, `removed_by_id` | Yes |
+
+The platform endpoints, created in the admin, receive all three for every organization.
+
+### Organization webhooks
+
+Each organization adds its own endpoints by the API and receives only its own events, signed with its own secret. They need `TENANCY_ENABLED=True` and `WEBHOOKS_ENABLED=True`; with either off, the routes get `404`. Admins and owners only.
+
+| Method and route | What it does |
+|---|---|
+| `GET /api/v1/organizations/<organization>/webhooks/` | The endpoints of the organization: `id`, `url`, `description`, `events`, `is_active`, `created_at`, `updated_at` |
+| `POST /api/v1/organizations/<organization>/webhooks/` | `url`, `events`, an optional `description` and `is_active`. `201` with the same fields plus `secret` |
+| `GET`, `PATCH`, `DELETE /api/v1/organizations/<organization>/webhooks/<endpoint_id>/` | Read, change (`url`, `description`, `events`, `is_active`) or delete it with its deliveries |
+| `POST /api/v1/organizations/<organization>/webhooks/<endpoint_id>/rotate-secret/` | A new secret. `200` with the endpoint plus `secret` |
+| `GET /api/v1/organizations/<organization>/webhooks/<endpoint_id>/deliveries/` | Its deliveries, newest first: `id`, `event`, `status`, `attempts`, `last_status_code`, `last_error`, `next_attempt_at`, `delivered_at`, `created_at`, `payload` |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/organizations/acme/webhooks/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"url": "https://erp.example.com/hooks", "events": ["organization.member_removed"]}'
+```
+
+In PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/acme/webhooks/ `
+  -Headers @{ Authorization = "Bearer <access>" } -ContentType "application/json" `
+  -Body '{"url": "https://erp.example.com/hooks", "events": ["organization.member_removed"]}'
+```
+
+- `secret` shows up only in the answers to the creation and the rotation. After a rotation the old secret stops signing at once, retries of pending deliveries included. The audit log never stores it.
+- `events` takes only names from `WEBHOOK_ORGANIZATION_EVENTS`: `organization.member_added` and `organization.member_removed` in the base, plus the ones your project adds. `user.registered` and `user.email_verified` are refused because they concern accounts of the whole platform. Anything else, an empty list or a repeated name gets `400` with the message in `fields.events`.
+- `url` is checked like in the admin: `http` or `https` with a host, and no private addresses where they are refused (see [Webhooks](#webhooks)). The message goes in `fields.url`.
+- Each organization can have up to `WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT` endpoints (10 by default), active or not. One more gets `409` with `code` `webhook_endpoint_limit_reached`.
+- An endpoint of another organization gets `404` with `code` `not_found`; the route of an organization you don't belong to, `404` with `code` `organization_not_found`. A member gets `403` with `code` `permission_denied`, and an [organization API key](#organization-api-keys) `403` with `code` `organization_api_key_not_allowed`.
+- The receiver checks the signature with [the same code](#webhooks) as a platform receiver, with the secret of its endpoint.
+- With `TENANCY_ENABLED=False` the endpoints of organizations stay in the database but receive nothing; the platform ones receive everything, as without multi-tenancy.
+
+| | Platform endpoint | Organization endpoint |
 |---|---|---|
-| `organization.created` | `POST /api/v1/organizations/` | `organization_id`, `name`, `slug`, `owner_id`, `owner_email` |
-| `organization.member_added` | An invitation is accepted, with `accept/` or `register/` | `organization_id`, `user_id`, `email`, `role` |
-| `organization.member_removed` | A member is removed or leaves | `organization_id`, `user_id`, `email`, `role`, `removed_by_id` |
+| Created by | Staff, in the admin | An admin of the organization, by the API |
+| Receives | Every event it subscribes to, of every organization | Only the events emitted with its organization |
+| Events | Any name | Names in `WEBHOOK_ORGANIZATION_EVENTS` |
+| Limit | None | `WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT` per organization |
+| Switches | `WEBHOOKS_ENABLED` | `WEBHOOKS_ENABLED` and `TENANCY_ENABLED` |
+
+The admin shows the organization of each endpoint and delivery, and filters by it; empty means a platform endpoint. Endpoints created in the admin are platform endpoints.
 
 ### Trying it
 
@@ -1291,14 +1406,14 @@ router = SimpleRouter()
 router.register("projects", ProjectViewSet, basename="project")
 
 urlpatterns += [
-    path("api/v1/organizations/<uuid:organization_id>/", include(router.urls)),
+    path("api/v1/organizations/<organization:organization_id>/", include(router.urls)),
 ]
 ```
 
-- The organization comes from the URL: `GET /api/v1/organizations/<organization_id>/projects/`. The URL kwarg has to be called `organization_id`.
+- The organization comes from the URL: `GET /api/v1/organizations/<organization>/projects/`, by id or slug. Use the `organization` converter (`<uuid:...>` would refuse the slug), and call the kwarg `organization_id`.
 - The list, detail, update and delete only see the rows of that organization. A row of another one gets `404`, as if it didn't exist.
 - A create assigns the organization of the URL. An `organization` sent in the body is ignored, also on updates, so a row can't move to another organization.
-- The view gets `request.organization` and `request.membership` (with its `role`) once the permission passed.
+- The view gets `request.organization` and `request.organization_role` once the permission passed, and `request.membership` for a person. With an [organization API key](#organization-api-keys) `request.membership` is `None`, `request.user` is not a user and the key is in `request.auth`: don't save `request.user` in a row without checking it.
 - `OrganizationScopedMixin` does the same for a generic view of your own (`ListCreateAPIView` and the like).
 
 ### Permissions of an organization
@@ -1312,7 +1427,7 @@ urlpatterns += [
 | Request | Answer |
 |---|---|
 | Without a token | `401` |
-| An organization that doesn't exist, an id that isn't a UUID or an organization the user isn't a member of | `404` with `code` `organization_not_found`. The same answer for all three, so nobody learns which organizations exist |
+| An organization that doesn't exist, a reference that is neither an id nor a slug, or an organization the user isn't a member of | `404` with `code` `organization_not_found`. The same answer for all three, so nobody learns which organizations exist |
 | A member without the role | `403` with `code` `permission_denied` |
 | A superuser who isn't a member | `404`: staff users work on organizations from the admin |
 | `TENANCY_ENABLED=False` | `404` |
@@ -1322,6 +1437,56 @@ The roles of an organization have nothing to do with the [Roles](#roles) of `syn
 ### Testing the isolation
 
 Leaking one organization's data to another is the most expensive bug a multi-tenant SaaS can have. Give every view of an organization a test where a member of organization A tries to list, read, change, delete and create rows of organization B, and expects `404` every time. `organizations/tests/test_scoped_views.py` has an example.
+
+### Isolation check
+
+With `TENANCY_ENABLED=True`, Django checks every model when it starts, on `check` and before the tests. A model passes when it has a required `ForeignKey` to `Organization`, or a required `ForeignKey` to a model that passes (`InvoiceLine` → `Invoice` → organization). Otherwise:
+
+```
+WARNINGS:
+billing.Invoice: (organizations.W001) This model doesn't store which organization each row belongs to.
+	HINT: Inherit from OrganizationScopedModel, add a required ForeignKey to a model that has one, or inherit from GlobalModel if every organization shares it on purpose.
+```
+
+It's a warning: `runserver` and `migrate` still run, but `check --deploy --fail-level WARNING` and the CI step "Deploy checks with multi-tenancy on" fail.
+
+If the rows belong to an organization:
+
+```python
+from django.db import models
+
+from organizations.models import OrganizationScopedModel
+
+
+class Invoice(OrganizationScopedModel):
+    number = models.CharField(max_length=20)
+
+
+class InvoiceLine(models.Model):
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+```
+
+`InvoiceLine` needs no `organization` of its own: it gets it through `Invoice`.
+
+If every organization shares the model on purpose, such as a list of countries:
+
+```python
+from django.db import models
+
+from organizations.models import GlobalModel
+
+
+class Country(GlobalModel):
+    code = models.CharField(max_length=2, unique=True)
+```
+
+`GlobalModel` adds no field and no migration. Next to another base class, list it last, because Django takes the `Meta` of the first one: `class Plan(TimestampedModel, GlobalModel)`. The base marks its own global models the same way (`User`, `AuditLog`, `ApiKey`). The webhook tables are marked too, but they aren't shared as such: an endpoint has an optional organization, and `emit_webhook_event` and the [organization routes](#organization-webhooks) keep each organization to its own.
+
+- An optional `ForeignKey` (`null=True`) doesn't count, because it allows rows without an organization. Neither does a `ForeignKey` to a global model.
+- Proxy models, models with `managed = False`, the tables Django creates for a `ManyToManyField`, and the models of Django and of installed packages are skipped. An app installed as a package outside the project folder isn't checked either.
+- The check reads models, not queries: it doesn't replace the [isolation test](#testing-the-isolation) of each view.
+- `SILENCED_SYSTEM_CHECKS = ["organizations.W001"]` silences it for the whole project. Prefer `GlobalModel`, which says it next to the model.
 
 ### Turning it off
 

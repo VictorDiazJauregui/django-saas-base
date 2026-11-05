@@ -73,6 +73,8 @@ docker run --rm --env-file .env.prod myproject-api python manage.py create_admin
 
 Most platforms have a place for this: a release command (Heroku, Render, Railway), a Kubernetes `Job`, or a step of the pipeline.
 
+With multi-tenancy on, a model that doesn't store its organization shows up as `organizations.W001`: `migrate` still runs, but `check --deploy --fail-level WARNING` fails. Fix the model before the release. See [Isolation check](README.md#isolation-check).
+
 ---
 
 ## 4. Start the app

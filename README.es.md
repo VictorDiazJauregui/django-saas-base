@@ -374,7 +374,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `ANYMAIL_*` | Django | Configuración de ese proveedor, como `ANYMAIL_RESEND_API_KEY` | — |
 | `DEFAULT_FROM_EMAIL` | Django | Remitente de los emails que manda el proyecto | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` cierra `POST /api/v1/auth/register/` con `403`. Ver [Registro público](#registro-público) | `True` |
-| `API_KEYS_ENABLED` | Django | `True` acepta `Authorization: Api-Key <key>`, con keys creadas en el admin. Ver [API keys](#api-keys) | `False` |
+| `API_KEYS_ENABLED` | Django | `True` acepta `Authorization: Api-Key <key>`, con keys creadas en el admin. Con `TENANCY_ENABLED=True` también enciende las keys de organización. Ver [API keys](#api-keys) | `False` |
 | `TOTP_ENABLED` | Django | `True` deja a los usuarios sumar un segundo factor con una app de autenticación. Ver [Autenticación en dos pasos](#autenticación-en-dos-pasos) | `False` |
 | `TOTP_ENCRYPTION_KEY` | Django | Clave Fernet que cifra los secretos del segundo factor. Obligatoria con `TOTP_ENABLED=True`; no se cambia nunca | *(vacía)* |
 | `TOTP_ISSUER` | Django | Nombre que muestra la app de autenticación junto a la cuenta | *(vacía)* |
@@ -384,6 +384,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `WEBHOOK_MAX_ATTEMPTS` | Django | Intentos por entrega antes de marcarla como fallida | `5` |
 | `WEBHOOK_TIMEOUT_SECONDS` | Django | Segundos de espera de la respuesta del receptor | `10` |
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` permite receptores en direcciones privadas. Vacía: permitidos solo en `local` y `ci` | *(vacía)* |
+| `WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT` | Django | Destinos de webhook que cada organización puede dar de alta por la API, activos o no. Ver [Webhooks de la organización](#webhooks-de-la-organización) | `10` |
 | `TENANCY_ENABLED` | Django | `True` enciende las organizaciones con miembros y roles. Ver [Multi-tenancy](#multi-tenancy) | `False` |
 | `FRONTEND_INVITATION_URL` | Django | Página del frontend a la que apunta el email de invitación, con `{token}`. Obligatoria con `TENANCY_ENABLED=True`: sin ella Django no arranca. Ver [Invitaciones](#invitaciones) | `'http://localhost:3000/join?token={token}'` |
 | `TENANCY_INVITATION_TIMEOUT_HOURS` | Django | Horas que funciona el link de una invitación | `72` |
@@ -1012,6 +1013,7 @@ Para otro servidor que llama a la API sin que inicie sesión una persona: un sis
 - Para revocar, seleccioná las keys en el admin y ejecutá **Revocar las API keys seleccionadas**. Rige desde el próximo request. Una key no se edita: se crea una nueva y se revoca la vieja.
 - El admin muestra cuándo se usó cada key por última vez. La auditoría registra los requests a nombre del usuario de la key, y el header nunca se guarda.
 - Con `API_KEYS_ENABLED=False`, un header `Api-Key` se ignora y el request recibe el `401` de siempre. Las keys quedan en la base y vuelven a funcionar si se enciende de nuevo.
+- Con multi-tenancy encendido, una key también puede ser de una organización y no de un usuario: ver [API keys de organización](#api-keys-de-organización).
 
 ### CORS
 
@@ -1089,6 +1091,20 @@ from webhooks.events import emit_webhook_event
 emit_webhook_event("invoice.paid", {"invoice_id": invoice.pk, "total": str(invoice.total)})
 ```
 
+Un evento que pertenece a una organización la pasa con `organization=`. Llega a los endpoints de plataforma y a los [de esa organización](#webhooks-de-la-organización), nunca a los de otra. Agregá su nombre a `WEBHOOK_ORGANIZATION_EVENTS` en `core/settings.py` para que las organizaciones puedan suscribirse:
+
+```python
+WEBHOOK_ORGANIZATION_EVENTS = [
+    "organization.member_added",
+    "organization.member_removed",
+    "invoice.paid",
+]
+
+emit_webhook_event("invoice.paid", {"invoice_id": str(invoice.pk)}, organization=invoice.organization)
+```
+
+Los datos van a los receptores de esa organización: poné solo lo que le pertenece. Sin `organization=`, el evento llega solo a los endpoints de plataforma, como antes.
+
 Los datos tienen que ser JSON. La entrega se guarda en la misma transacción de la base que tu cambio: si el cambio se revierte, no se manda nada, y si hace commit, se entrega aunque el proceso se corte justo después.
 
 **Enviar.** Un proceso aparte manda las entregas:
@@ -1105,11 +1121,11 @@ Corrélo al lado de la app (ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md#worker-de-we
 ```http
 POST /hooks HTTP/1.1
 Content-Type: application/json
-Webhook-Id: 42
+Webhook-Id: 3f2b8c1e-5a4d-4e7b-9c61-0d2a7e9b4f10
 Webhook-Event: invoice.paid
 Webhook-Signature: t=1792488000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
 
-{"id":"42","event":"invoice.paid","created_at":"2026-10-20T10:40:00.123456+00:00","data":{"invoice_id":7,"total":"120.00"}}
+{"id":"3f2b8c1e-5a4d-4e7b-9c61-0d2a7e9b4f10","event":"invoice.paid","created_at":"2026-10-20T10:40:00.123456+00:00","data":{"invoice_id":7,"total":"120.00"}}
 ```
 
 `v1` es el HMAC-SHA256 de `"<t>.<body>"` con el secreto. El receptor lo verifica y rechaza los timestamps viejos, así una request capturada no se puede repetir:
@@ -1128,12 +1144,12 @@ def is_valid_webhook(secret, signature_header, body, tolerance=300):
     return fresh and hmac.compare_digest(expected, parts["v1"])
 ```
 
-`Webhook-Id` es el mismo en todos los reintentos de una entrega: usalo para ignorar una que ya procesaste.
+`Webhook-Id` es un UUID, el mismo en todos los reintentos de una entrega: usalo para ignorar una que ya procesaste.
 
 **Reintentos.** Una respuesta `2xx` marca la entrega como exitosa. Cualquier otra, un redirect incluido, o ninguna respuesta en `WEBHOOK_TIMEOUT_SECONDS`, se reintenta después de 1 minuto, 5 minutos, 30 minutos, 2 horas y 12 horas aproximadamente, hasta `WEBHOOK_MAX_ATTEMPTS` intentos en total (5 por defecto). Después queda como fallida. El admin lista cada entrega con su estado, intentos y última respuesta, y **Reintentar ahora** vuelve a encolar las seleccionadas.
 
 - Los redirects no se siguen: un `3xx` cuenta como fallo.
-- En `staging` y `prod` se rechazan las URLs que resuelven a una dirección privada, de loopback o link-local, en el admin y al enviar, para que un endpoint no haga que el servidor llame a su propia red o al servicio de metadatos de la nube. `WEBHOOK_ALLOW_PRIVATE_URLS=True` las permite, por ejemplo para un receptor dentro de la misma red. En `local` y `ci` se permiten.
+- En `staging` y `prod` se rechazan las URLs que resuelven a una dirección privada, de loopback o link-local, en el admin y al enviar, para que un endpoint no haga que el servidor llame a su propia red o al servicio de metadatos de la nube. `WEBHOOK_ALLOW_PRIVATE_URLS=True` las permite, por ejemplo para un receptor dentro de la misma red. En `local` y `ci` se permiten. Con multi-tenancy encendido, vale también para los endpoints que cada organización da de alta por la API: encenderlo deja que tus clientes apunten a tu red interna.
 - Con `WEBHOOKS_ENABLED=False`, `emit_webhook_event` no guarda nada. Las entregas ya guardadas las sigue mandando `deliver_webhooks`.
 - La tabla de entregas solo crece: las viejas se borran con `purge_webhook_deliveries`.
 
@@ -1172,17 +1188,17 @@ Una organización se crea con `POST /api/v1/organizations/` (quien la crea queda
 
 ### API de organizaciones y miembros
 
-Todas las rutas piden `Authorization: Bearer <access>` (o una API key) y responden `404` con `TENANCY_ENABLED=False`.
+Todas las rutas piden `Authorization: Bearer <access>` (o una API key personal) y responden `404` con `TENANCY_ENABLED=False`. `<organization>` es el id o el slug.
 
 | Método y ruta | Quién | Qué hace |
 |---|---|---|
 | `GET /api/v1/organizations/` | Cualquier usuario | Las organizaciones del usuario, paginadas, cada una con su `role` |
 | `POST /api/v1/organizations/` | Cualquier usuario | Crea una con `name` y un `slug` opcional (si no viene, sale del nombre, con `-2`, `-3`… si está ocupado). `201` |
-| `GET /api/v1/organizations/<organization_id>/` | member | `id`, `name`, `slug`, `role` y `created_at` |
-| `PATCH /api/v1/organizations/<organization_id>/` | admin | Cambia `name` y `slug`. Un slug en uso: `400` en `fields.slug` |
-| `GET /api/v1/organizations/<organization_id>/members/` | member | Miembros, paginados: `id` de la membresía, `user` (`id`, `email`, `first_name`, `last_name`), `role` y `created_at` |
-| `PATCH /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin | Cambia `role` |
-| `DELETE /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin, o el propio miembro para salir | `204` |
+| `GET /api/v1/organizations/<organization>/` | member | `id`, `name`, `slug`, `role` y `created_at` |
+| `PATCH /api/v1/organizations/<organization>/` | admin | Cambia `name` y `slug`. Un slug en uso: `400` en `fields.slug` |
+| `GET /api/v1/organizations/<organization>/members/` | member | Miembros, paginados: `id` de la membresía, `user` (`id`, `email`, `first_name`, `last_name`), `role` y `created_at` |
+| `PATCH /api/v1/organizations/<organization>/members/<membership_id>/` | admin | Cambia `role` |
+| `DELETE /api/v1/organizations/<organization>/members/<membership_id>/` | admin, o el propio miembro para salir | `204` |
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/organizations/ \
@@ -1202,15 +1218,28 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/ 
 - Un cambio que dejaría la organización sin owners recibe `409` con `code` `last_owner`. Para salir siendo el último owner, primero hacé owner a otra persona.
 - Las organizaciones se borran solo desde el admin, que lista todo lo que se va con ellas antes de confirmar.
 
+### Id o slug en la ruta
+
+`<organization>` en cada ruta bajo `/api/v1/organizations/` es el `id` de la organización o su `slug`: `/api/v1/organizations/acme/members/` responde igual que `/api/v1/organizations/3f2b…/members/`, con los mismos permisos. Un slug que no existe o de una organización de la que el usuario no es miembro recibe el mismo `404` con `code` `organization_not_found` que un id.
+
+- Un slug usa minúsculas, dígitos, `-` y `_`, y no puede tener forma de UUID (con o sin guiones), así nunca se confunde con un id. Si no: `400` en `fields.slug`. Un slug armado desde el nombre nunca tiene esa forma.
+- `id` es el identificador estable y el que devuelve la API. Cambiar el slug rompe todos los links guardados con el viejo: desde ese momento responden `404`.
+- El backend no lee el dominio. Un frontend con subdominios (`acme.tuapp.com`) lee la primera parte del host y la pone en la ruta; el subdominio no da acceso por sí solo, la membresía se valida como siempre:
+
+  ```js
+  const organization = window.location.hostname.split(".")[0];
+  fetch(`/api/v1/organizations/${organization}/members/`, { headers });
+  ```
+
 ### Invitaciones
 
 Un admin invita a alguien por email; el email apunta a `FRONTEND_INVITATION_URL`, con `{token}` reemplazado. Esa página del frontend le devuelve el token a la API.
 
 | Método y ruta | Quién | Qué hace |
 |---|---|---|
-| `GET /api/v1/organizations/<organization_id>/invitations/` | admin | Invitaciones pendientes, sin su token |
-| `POST /api/v1/organizations/<organization_id>/invitations/` | admin | `email` y `role`. Manda el email. `201` |
-| `DELETE /api/v1/organizations/<organization_id>/invitations/<invitation_id>/` | admin | La revoca. `204` |
+| `GET /api/v1/organizations/<organization>/invitations/` | admin | Invitaciones pendientes, sin su token |
+| `POST /api/v1/organizations/<organization>/invitations/` | admin | `email` y `role`. Manda el email. `201` |
+| `DELETE /api/v1/organizations/<organization>/invitations/<invitation_id>/` | admin | La revoca. `204` |
 | `POST /api/v1/invitations/lookup/` | Público | `token` → `organization`, `email`, `role`, `expires_at` y `account_exists` |
 | `POST /api/v1/invitations/accept/` | El usuario invitado, logueado | `token`. Responde como un ítem de `GET /organizations/` |
 | `POST /api/v1/invitations/register/` | Público | `token`, `password`, `password2`, `first_name`, `last_name`. Crea la cuenta y la suma. `201` |
@@ -1224,15 +1253,101 @@ Un admin invita a alguien por email; el email apunta a `FRONTEND_INVITATION_URL`
 - Las rutas públicas cuentan requests por IP con `THROTTLE_INVITATION_RATE` (`10/h`).
 - El admin lista las invitaciones con su estado y las revoca con **Revocar las invitaciones seleccionadas**. Solo se crean desde la API, que manda el email.
 
+### API keys de organización
+
+Keys que pertenecen a una organización y no a una persona: con una se conecta un ERP o un sistema contable, y sigue andando cuando quien la creó deja la organización. Necesitan `TENANCY_ENABLED=True` y `API_KEYS_ENABLED=True`; con cualquiera apagado, las rutas responden `404` y la key `401`.
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/organizations/<organization>/api-keys/` | admin | Keys activas y revocadas: `id`, `name`, `prefix`, `role`, `created_by_email`, `expires_at`, `last_used_at`, `revoked_at`, `created_at` |
+| `POST /api/v1/organizations/<organization>/api-keys/` | admin | `name`, `role` (`admin` o `member`, nunca `owner`) y un `expires_at` futuro opcional. `201` con los mismos campos más `api_key` |
+| `DELETE /api/v1/organizations/<organization>/api-keys/<key_id>/` | admin | La revoca; el registro queda. `204` |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/organizations/acme/api-keys/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"name": "ERP", "role": "member"}'
+```
+
+En PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/acme/api-keys/ `
+  -Headers @{ Authorization = "Bearer <access>" } -ContentType "application/json" `
+  -Body '{"name": "ERP", "role": "member"}'
+```
+
+- `api_key` aparece una sola vez, en esa respuesta. La base guarda solo su hash SHA-256 y el prefijo (`org_` y 12 caracteres), y la auditoría la guarda como `[REDACTED]`.
+- El otro sistema la manda como `Authorization: Api-Key <key>`, el mismo header que una key personal.
+- Una key sirve solo en las rutas de su organización que usan `IsOrganizationMember`, `HasOrganizationRole` u `OrganizationScopedViewSet`, con su rol. En otra organización: `404` con `code` `organization_not_found`.
+- Nunca gestiona el módulo: la organización, los miembros, las invitaciones y las keys responden `403` con `code` `organization_api_key_not_allowed`, también para leer. Cualquier otra ruta que pide una persona (`IsAuthenticated`, `/api/v1/auth/me/`) responde `403` con `code` `permission_denied`.
+- Una key revocada, vencida o incorrecta recibe el mismo `401` que una personal: `{"code": "invalid_api_key", "detail": "Invalid API key.", "fields": {}}`.
+- El admin las lista en **API keys de organización**, las busca por prefijo, las crea (la página siguiente muestra la key una vez) y las revoca con **Revocar las API keys seleccionadas**. `last_used_at` se escribe como mucho una vez cada 5 minutos.
+- La auditoría registra lo que hace una key con `api_key_prefix` y `organization_id`, sin usuario.
+
+| | Key personal | Key de organización |
+|---|---|---|
+| Pertenece a | Un usuario | Una organización |
+| La crea | Staff, en el admin | Un admin de la organización, por la API, o staff en el admin |
+| Actúa como | Su usuario, con todos sus permisos | Ella misma, con un rol en una organización |
+| Deja de andar cuando | Se desactiva su usuario | Se revoca o vence |
+| Interruptores | `API_KEYS_ENABLED` | `TENANCY_ENABLED` y `API_KEYS_ENABLED` |
+
 ### Eventos de webhooks
 
-Con los [Webhooks](#webhooks) encendidos, la base emite tres eventos más:
+Con los [Webhooks](#webhooks) encendidos, la base emite tres eventos más, cada uno con su organización:
 
-| Evento | Cuándo | Datos |
+| Evento | Cuándo | Datos | Endpoints de la organización |
+|---|---|---|---|
+| `organization.created` | `POST /api/v1/organizations/` | `organization_id`, `name`, `slug`, `owner_id`, `owner_email` | No: al crearse, la organización todavía no tiene endpoints |
+| `organization.member_added` | Se acepta una invitación, con `accept/` o con `register/` | `organization_id`, `user_id`, `email`, `role` | Sí |
+| `organization.member_removed` | Sacan a un miembro o se va | `organization_id`, `user_id`, `email`, `role`, `removed_by_id` | Sí |
+
+Los endpoints de plataforma, creados en el admin, reciben los tres de todas las organizaciones.
+
+### Webhooks de la organización
+
+Cada organización da de alta sus propios endpoints por la API y recibe solo sus eventos, firmados con su propio secreto. Necesitan `TENANCY_ENABLED=True` y `WEBHOOKS_ENABLED=True`; con cualquiera apagado, las rutas dan `404`. Solo admins y owners.
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/v1/organizations/<organization>/webhooks/` | Los endpoints de la organización: `id`, `url`, `description`, `events`, `is_active`, `created_at`, `updated_at` |
+| `POST /api/v1/organizations/<organization>/webhooks/` | `url`, `events`, y opcionales `description` e `is_active`. `201` con los mismos campos más `secret` |
+| `GET`, `PATCH`, `DELETE /api/v1/organizations/<organization>/webhooks/<endpoint_id>/` | Verlo, cambiarlo (`url`, `description`, `events`, `is_active`) o borrarlo con sus entregas |
+| `POST /api/v1/organizations/<organization>/webhooks/<endpoint_id>/rotate-secret/` | Un secreto nuevo. `200` con el endpoint más `secret` |
+| `GET /api/v1/organizations/<organization>/webhooks/<endpoint_id>/deliveries/` | Sus entregas, de la más nueva a la más vieja: `id`, `event`, `status`, `attempts`, `last_status_code`, `last_error`, `next_attempt_at`, `delivered_at`, `created_at`, `payload` |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/organizations/acme/webhooks/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"url": "https://erp.example.com/hooks", "events": ["organization.member_removed"]}'
+```
+
+En PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/acme/webhooks/ `
+  -Headers @{ Authorization = "Bearer <access>" } -ContentType "application/json" `
+  -Body '{"url": "https://erp.example.com/hooks", "events": ["organization.member_removed"]}'
+```
+
+- `secret` aparece solo en las respuestas del alta y de la rotación. Después de rotar, el secreto viejo deja de firmar en el acto, también en los reintentos de entregas pendientes. La auditoría nunca lo guarda.
+- `events` acepta solo nombres de `WEBHOOK_ORGANIZATION_EVENTS`: `organization.member_added` y `organization.member_removed` en la base, más los que agregue tu proyecto. `user.registered` y `user.email_verified` se rechazan porque son de cuentas de toda la plataforma. Cualquier otro, una lista vacía o un nombre repetido dan `400` con el mensaje en `fields.events`.
+- `url` se valida como en el admin: `http` o `https` con host, y sin direcciones privadas donde se rechazan (ver [Webhooks](#webhooks)). El mensaje va en `fields.url`.
+- Cada organización puede tener hasta `WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT` endpoints (10 por defecto), activos o no. Uno más da `409` con `code` `webhook_endpoint_limit_reached`.
+- Un endpoint de otra organización da `404` con `code` `not_found`; la ruta de una organización a la que no pertenecés, `404` con `code` `organization_not_found`. Un member recibe `403` con `code` `permission_denied`, y una [API key de organización](#api-keys-de-organización), `403` con `code` `organization_api_key_not_allowed`.
+- El receptor verifica la firma con [el mismo código](#webhooks) que uno de plataforma, con el secreto de su endpoint.
+- Con `TENANCY_ENABLED=False` los endpoints de las organizaciones siguen en la base pero no reciben nada; los de plataforma reciben todo, como sin multi-tenancy.
+
+| | Endpoint de plataforma | Endpoint de organización |
 |---|---|---|
-| `organization.created` | `POST /api/v1/organizations/` | `organization_id`, `name`, `slug`, `owner_id`, `owner_email` |
-| `organization.member_added` | Se acepta una invitación, con `accept/` o con `register/` | `organization_id`, `user_id`, `email`, `role` |
-| `organization.member_removed` | Sacan a un miembro o se va | `organization_id`, `user_id`, `email`, `role`, `removed_by_id` |
+| Lo crea | Staff, en el admin | Un admin de la organización, por la API |
+| Recibe | Todos los eventos a los que se suscribe, de todas las organizaciones | Solo los eventos emitidos con su organización |
+| Eventos | Cualquier nombre | Nombres de `WEBHOOK_ORGANIZATION_EVENTS` |
+| Límite | Ninguno | `WEBHOOK_ORGANIZATION_ENDPOINT_LIMIT` por organización |
+| Interruptores | `WEBHOOKS_ENABLED` | `WEBHOOKS_ENABLED` y `TENANCY_ENABLED` |
+
+El admin muestra la organización de cada endpoint y de cada entrega, y filtra por ella; vacía es un endpoint de plataforma. Los endpoints creados en el admin son de plataforma.
 
 ### Probarlo
 
@@ -1291,14 +1406,14 @@ router = SimpleRouter()
 router.register("projects", ProjectViewSet, basename="project")
 
 urlpatterns += [
-    path("api/v1/organizations/<uuid:organization_id>/", include(router.urls)),
+    path("api/v1/organizations/<organization:organization_id>/", include(router.urls)),
 ]
 ```
 
-- La organización sale de la URL: `GET /api/v1/organizations/<organization_id>/projects/`. El parámetro de la URL se tiene que llamar `organization_id`.
+- La organización sale de la URL: `GET /api/v1/organizations/<organization>/projects/`, por id o por slug. Usá el conversor `organization` (`<uuid:...>` rechazaría el slug) y llamá al parámetro `organization_id`.
 - El listado, el detalle, la edición y el borrado solo ven las filas de esa organización. Una fila de otra da `404`, como si no existiera.
 - El alta asigna la organización de la URL. Un `organization` en el body se ignora, también al editar, así que una fila no se puede mover a otra organización.
-- La vista recibe `request.organization` y `request.membership` (con su `role`) una vez que pasó el permiso.
+- La vista recibe `request.organization` y `request.organization_role` una vez que pasó el permiso, y `request.membership` si es una persona. Con una [API key de organización](#api-keys-de-organización) `request.membership` es `None`, `request.user` no es un usuario y la key está en `request.auth`: no guardes `request.user` en una fila sin revisarlo.
 - `OrganizationScopedMixin` hace lo mismo en una vista genérica propia (`ListCreateAPIView` y similares).
 
 ### Permisos de una organización
@@ -1312,7 +1427,7 @@ urlpatterns += [
 | Request | Respuesta |
 |---|---|
 | Sin token | `401` |
-| Una organización que no existe, un id que no es un UUID o una organización de la que el usuario no es miembro | `404` con `code` `organization_not_found`. La misma respuesta para los tres, así nadie averigua qué organizaciones existen |
+| Una organización que no existe, una referencia que no es ni id ni slug, o una organización de la que el usuario no es miembro | `404` con `code` `organization_not_found`. La misma respuesta para los tres, así nadie averigua qué organizaciones existen |
 | Un miembro sin el rol | `403` con `code` `permission_denied` |
 | Un superusuario que no es miembro | `404`: el staff trabaja las organizaciones desde el admin |
 | `TENANCY_ENABLED=False` | `404` |
@@ -1322,6 +1437,56 @@ Los roles de una organización no tienen nada que ver con los [Roles](#roles) de
 ### Probar el aislamiento
 
 Que los datos de una organización se filtren a otra es el error más caro de un SaaS multi-tenant. Cada vista de una organización lleva un test donde un miembro de la organización A intenta listar, leer, editar, borrar y crear filas de la organización B, y espera `404` en todos los casos. Hay un ejemplo en `organizations/tests/test_scoped_views.py`.
+
+### Chequeo de aislamiento
+
+Con `TENANCY_ENABLED=True`, Django revisa todos los modelos al arrancar, en `check` y antes de los tests. Un modelo pasa si tiene una `ForeignKey` obligatoria a `Organization`, o una `ForeignKey` obligatoria a un modelo que pasa (`InvoiceLine` → `Invoice` → organización). Si no:
+
+```
+WARNINGS:
+billing.Invoice: (organizations.W001) This model doesn't store which organization each row belongs to.
+	HINT: Inherit from OrganizationScopedModel, add a required ForeignKey to a model that has one, or inherit from GlobalModel if every organization shares it on purpose.
+```
+
+Es un aviso: `runserver` y `migrate` corren igual, pero `check --deploy --fail-level WARNING` y el paso "Deploy checks with multi-tenancy on" de la CI fallan.
+
+Si las filas son de una organización:
+
+```python
+from django.db import models
+
+from organizations.models import OrganizationScopedModel
+
+
+class Invoice(OrganizationScopedModel):
+    number = models.CharField(max_length=20)
+
+
+class InvoiceLine(models.Model):
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+```
+
+`InvoiceLine` no necesita un `organization` propio: lo tiene a través de `Invoice`.
+
+Si todas las organizaciones comparten el modelo a propósito, como una lista de países:
+
+```python
+from django.db import models
+
+from organizations.models import GlobalModel
+
+
+class Country(GlobalModel):
+    code = models.CharField(max_length=2, unique=True)
+```
+
+`GlobalModel` no agrega campos ni migraciones. Junto a otra clase base, va última, porque Django toma el `Meta` de la primera: `class Plan(TimestampedModel, GlobalModel)`. La base marca así sus propios modelos globales (`User`, `AuditLog`, `ApiKey`). Las tablas de webhooks también llevan la marca, pero no se comparten tal cual: un endpoint tiene una organización opcional, y `emit_webhook_event` y las [rutas de la organización](#webhooks-de-la-organización) mantienen a cada organización en lo suyo.
+
+- Una `ForeignKey` opcional (`null=True`) no cuenta, porque permite filas sin organización. Tampoco una `ForeignKey` a un modelo global.
+- Se saltean los modelos proxy, los que tienen `managed = False`, las tablas que Django crea para un `ManyToManyField` y los modelos de Django y de los paquetes instalados. Una app instalada como paquete fuera de la carpeta del proyecto tampoco se revisa.
+- El chequeo lee modelos, no consultas: no reemplaza el [test de aislamiento](#probar-el-aislamiento) de cada vista.
+- `SILENCED_SYSTEM_CHECKS = ["organizations.W001"]` lo silencia para todo el proyecto. Mejor `GlobalModel`, que lo dice al lado del modelo.
 
 ### Apagarlo
 

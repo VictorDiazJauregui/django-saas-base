@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
@@ -6,6 +7,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from organizations.active_organization import resolve_active_membership
 from organizations.permissions import HasOrganizationRole
 from security.tests.user_factory import create_superuser, create_user
 
@@ -57,15 +59,21 @@ class IsOrganizationMemberTests(OrganizationPermissionTestCase):
         response = self.get_view("echo", uuid.uuid4())
         self.assert_error(response, status.HTTP_404_NOT_FOUND, "organization_not_found")
 
-    def test_an_id_that_is_not_a_uuid_gets_the_same_answer(self):
+    def test_a_reference_that_is_neither_an_id_nor_a_slug_gets_the_same_answer(self):
         self.join("owner")
-        response = self.get_view("raw_echo", "acme")
+        response = self.get_view("raw_echo", "not-an-organization")
         self.assert_error(response, status.HTTP_404_NOT_FOUND, "organization_not_found")
 
     def test_a_superuser_who_is_not_a_member_gets_not_found(self):
         self.client.force_authenticate(create_superuser())
         response = self.get_view("echo")
         self.assert_error(response, status.HTTP_404_NOT_FOUND, "organization_not_found")
+
+    def test_a_membership_already_on_the_request_is_reused(self):
+        membership = add_member(self.organization, self.user, "member")
+        request = SimpleNamespace(membership=membership)
+        with self.assertNumQueries(0):
+            self.assertIs(resolve_active_membership(request, view=None), membership)
 
     def test_the_membership_is_read_once_per_request(self):
         self.join("member")

@@ -1,7 +1,8 @@
 from django.utils.translation import gettext_lazy as _
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, PermissionDenied
 
 from .membership_changes import LastOwnerError
+from .organization_webhooks import WebhookEndpointLimitReached
 
 
 class LastOwnerConflict(APIException):
@@ -28,3 +29,15 @@ class AlreadyMember(APIException):
     status_code = 409
     default_detail = _("This person is already a member of the organization.")
     default_code = "already_member"
+
+
+# Keys reach the data of their organization; the module itself is managed by people only.
+class OrganizationApiKeyNotAllowed(PermissionDenied):
+    default_detail = _("Organization API keys can't use this route.")
+    default_code = "organization_api_key_not_allowed"
+
+
+class WebhookEndpointLimitConflict(APIException):
+    status_code = 409
+    default_detail = WebhookEndpointLimitReached.message
+    default_code = "webhook_endpoint_limit_reached"

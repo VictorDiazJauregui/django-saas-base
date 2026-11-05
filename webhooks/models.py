@@ -1,12 +1,29 @@
+import uuid
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from core.models import TimestampedModel
+from organizations.models import GlobalModel, Organization
 
 
-class WebhookEndpoint(TimestampedModel):
+# One table for platform and organization endpoints: the isolation is enforced by
+# emit_webhook_event and the organization routes, not by a generic scoped queryset.
+class WebhookEndpoint(TimestampedModel, GlobalModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # Empty means a platform endpoint, which receives every organization: SET_NULL would
+    # turn a customer's endpoint into one.
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="webhook_endpoints",
+        verbose_name=_("organization"),
+    )
     url = models.URLField(_("URL"), max_length=500)
     description = models.CharField(_("description"), max_length=200, blank=True)
     events = ArrayField(
@@ -27,7 +44,7 @@ class WebhookEndpoint(TimestampedModel):
         return self.url
 
 
-class WebhookDelivery(TimestampedModel):
+class WebhookDelivery(TimestampedModel, GlobalModel):
     PENDING = "pending"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -36,6 +53,8 @@ class WebhookDelivery(TimestampedModel):
         (SUCCEEDED, _("Succeeded")),
         (FAILED, _("Failed")),
     ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     endpoint = models.ForeignKey(
         WebhookEndpoint,

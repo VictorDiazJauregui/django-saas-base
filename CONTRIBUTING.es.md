@@ -108,6 +108,9 @@ Los tests viven en `<app>/tests/` y usan el test runner de Django (`django.test.
   `security/redaction.py`, con su test, para que nunca llegue en claro al audit log.
 - Una vista que trabaja sobre las filas de una organización lleva su test de aislamiento: un miembro
   de otra organización recibe `404` al listar, leer, editar, borrar y crear.
+- Con `TENANCY_ENABLED=True`, `python manage.py check` no informa ningún `organizations.W001`. Un
+  modelo marcado con `GlobalModel` explica por qué en la PR. El chequeo no reemplaza el test de
+  aislamiento.
 
 ## Cambios en la API
 

@@ -106,6 +106,8 @@ Tests live in `<app>/tests/` and use Django's test runner (`django.test.TestCase
   test, so it never reaches the audit log in plain text.
 - A view that works on an organization's rows comes with an isolation test: a member of another
   organization gets `404` when listing, reading, changing, deleting and creating.
+- With `TENANCY_ENABLED=True`, `python manage.py check` reports no `organizations.W001`. A model
+  marked with `GlobalModel` says why in the PR. The check doesn't replace the isolation test.
 
 ## API changes
 

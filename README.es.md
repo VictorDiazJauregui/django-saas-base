@@ -18,6 +18,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - [API](#api)
 - [Email](#email)
 - [Webhooks](#webhooks)
+- [Multi-tenancy](#multi-tenancy)
 - [Auditoría](#auditoría)
 - [Logs](#logs)
 - [Modelos base](#modelos-base)
@@ -48,6 +49,7 @@ Funciona en **Linux**, **WSL** y **Windows** (PowerShell y cmd).
 - **Autenticación en dos pasos** con app de autenticación y códigos de recuperación, en la API y en el admin. Apagada por defecto.
 - **Login con Google** que responde como el login por email. Apagado por defecto.
 - **Webhooks** firmados con HMAC, con reintentos y registro de entregas en el admin. Apagados por defecto.
+- **Multi-tenancy** con organizaciones, miembros, roles e invitaciones por email, y el aislamiento de los datos de cada organización. Apagado por defecto.
 - **Modelos base** con timestamps y borrado lógico opcional, para tus apps.
 - **Panel de administración** con gestión de usuarios y consulta de la auditoría.
 - **Imagen de producción:** un `Dockerfile` con gunicorn y whitenoise, un endpoint de health y logs en texto o JSON. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md).
@@ -355,6 +357,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `THROTTLE_REGISTER_RATE` | Django | Límite de `POST /api/v1/auth/register/` | `5/h` |
 | `THROTTLE_VERIFY_EMAIL_RATE` | Django | Límite de `verify-email/` y `verify-email/resend/` | `5/h` |
 | `THROTTLE_MFA_RATE` | Django | Límite de `login/2fa/` y de las rutas `2fa/` que verifican un código | `5/10m` |
+| `THROTTLE_INVITATION_RATE` | Django | Límite de las rutas `invitations/` | `10/h` |
 | `THROTTLE_PASSWORD_RATE` | Django | Límite del cambio y de la recuperación de contraseña, y de los endpoints que agregues con `throttle_scope = "password"` | `5/h` |
 | `TRUSTED_PROXY_COUNT` | Django | Proxies delante de Django que agregan su entrada a `X-Forwarded-For`. Con `0` se ignora el header. La usan los límites de requests y la auditoría. Un número negativo no deja arrancar Django | `0` |
 | `CACHE_URL` | Django | Cache donde se cuentan los límites | `locmemcache://` |
@@ -381,6 +384,9 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `WEBHOOK_MAX_ATTEMPTS` | Django | Intentos por entrega antes de marcarla como fallida | `5` |
 | `WEBHOOK_TIMEOUT_SECONDS` | Django | Segundos de espera de la respuesta del receptor | `10` |
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | Django | `True` permite receptores en direcciones privadas. Vacía: permitidos solo en `local` y `ci` | *(vacía)* |
+| `TENANCY_ENABLED` | Django | `True` enciende las organizaciones con miembros y roles. Ver [Multi-tenancy](#multi-tenancy) | `False` |
+| `FRONTEND_INVITATION_URL` | Django | Página del frontend a la que apunta el email de invitación, con `{token}`. Obligatoria con `TENANCY_ENABLED=True`: sin ella Django no arranca. Ver [Invitaciones](#invitaciones) | `'http://localhost:3000/join?token={token}'` |
+| `TENANCY_INVITATION_TIMEOUT_HOURS` | Django | Horas que funciona el link de una invitación | `72` |
 | `FRONTEND_PASSWORD_RESET_URL` | Django | Página del frontend a la que apunta el email de recuperación, con `{uid}` y `{token}`. Obligatoria: sin ella, o sin uno de los marcadores, Django no arranca. Ver [Recuperación de contraseña](#recuperación-de-contraseña) | `'http://localhost:3000/reset-password?uid={uid}&token={token}'` |
 | `PASSWORD_RESET_TIMEOUT_MINUTES` | Django | Minutos que dura un link de recuperación | `60` |
 | `REQUIRE_EMAIL_VERIFICATION` | Django | `True`: un registro público entra recién después de seguir el link de su email. Ver [Verificación de email](#verificación-de-email) | `False` |
@@ -1075,7 +1081,7 @@ Los webhooks avisan a otros sistemas que algo pasó en tu app: un `HTTP POST` co
 
 **Suscribir.** En el admin, en **Webhook endpoints**, agregá la URL del receptor y los eventos que quiere, separados por comas. La página siguiente muestra el secreto de firma, una sola vez: dáselo a quien maneja el receptor.
 
-**Emitir.** La base emite `user.registered` (registro público y cuentas nuevas desde Google) y `user.email_verified`, con `{"user_id": "...", "email": "..."}`. Tu código emite sus propios eventos así:
+**Emitir.** La base emite `user.registered` (registro público y cuentas nuevas desde Google) y `user.email_verified`, con `{"user_id": "...", "email": "..."}`, y con multi-tenancy encendido, los [eventos de organizaciones](#eventos-de-webhooks). Tu código emite sus propios eventos así:
 
 ```python
 from webhooks.events import emit_webhook_event
@@ -1147,6 +1153,181 @@ Continue? [y/N]
 - Las entregas pendientes no se borran nunca, aunque sean viejas: todavía se tienen que mandar.
 - La edad se cuenta desde que la entrega terminó, no desde que se creó. Una entrega creada hace meses y reintentada ayer desde el admin se conserva.
 - `--dry-run` muestra la cantidad y el rango, y `--no-input` borra sin preguntar, para las tareas programadas. Ver [DEPLOYMENT.es.md](DEPLOYMENT.es.md#5-tareas-programadas).
+
+## Multi-tenancy
+
+Para un SaaS donde varias empresas comparten una instancia, cada una con sus miembros y sus datos. Apagado por defecto: `TENANCY_ENABLED=True` lo enciende. Sin eso la API responde igual que antes y todas las rutas de esta sección dan `404`.
+
+Cada empresa es una **organización**. Un usuario puede pertenecer a varias, con un rol en cada una:
+
+| Rol | Puede |
+|---|---|
+| `owner` | Todo lo de un admin, y además dar y quitar el rol owner. Toda organización conserva al menos un owner |
+| `admin` | Editar la organización y manejar sus miembros |
+| `member` | Leer los datos de la organización |
+
+Todas las organizaciones viven en la misma base. Cada fila de tus modelos lleva la organización a la que pertenece, y la API solo le muestra a un usuario las filas de las organizaciones de las que es miembro.
+
+Una organización se crea con `POST /api/v1/organizations/` (quien la crea queda como owner) o en el admin, en **Organizaciones**. La página de cada usuario en el admin lista sus organizaciones.
+
+### API de organizaciones y miembros
+
+Todas las rutas piden `Authorization: Bearer <access>` (o una API key) y responden `404` con `TENANCY_ENABLED=False`.
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/organizations/` | Cualquier usuario | Las organizaciones del usuario, paginadas, cada una con su `role` |
+| `POST /api/v1/organizations/` | Cualquier usuario | Crea una con `name` y un `slug` opcional (si no viene, sale del nombre, con `-2`, `-3`… si está ocupado). `201` |
+| `GET /api/v1/organizations/<organization_id>/` | member | `id`, `name`, `slug`, `role` y `created_at` |
+| `PATCH /api/v1/organizations/<organization_id>/` | admin | Cambia `name` y `slug`. Un slug en uso: `400` en `fields.slug` |
+| `GET /api/v1/organizations/<organization_id>/members/` | member | Miembros, paginados: `id` de la membresía, `user` (`id`, `email`, `first_name`, `last_name`), `role` y `created_at` |
+| `PATCH /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin | Cambia `role` |
+| `DELETE /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin, o el propio miembro para salir | `204` |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/organizations/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corp"}'
+```
+
+En PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/ `
+  -Headers @{ Authorization = "Bearer <access>" } -ContentType "application/json" `
+  -Body '{"name": "Acme Corp"}'
+```
+
+- Los admins cambian y sacan a members y admins; solo un owner da o quita el rol owner, o saca a un owner. Si no: `403` con `code` `permission_denied`.
+- Un cambio que dejaría la organización sin owners recibe `409` con `code` `last_owner`. Para salir siendo el último owner, primero hacé owner a otra persona.
+- Las organizaciones se borran solo desde el admin, que lista todo lo que se va con ellas antes de confirmar.
+
+### Invitaciones
+
+Un admin invita a alguien por email; el email apunta a `FRONTEND_INVITATION_URL`, con `{token}` reemplazado. Esa página del frontend le devuelve el token a la API.
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/organizations/<organization_id>/invitations/` | admin | Invitaciones pendientes, sin su token |
+| `POST /api/v1/organizations/<organization_id>/invitations/` | admin | `email` y `role`. Manda el email. `201` |
+| `DELETE /api/v1/organizations/<organization_id>/invitations/<invitation_id>/` | admin | La revoca. `204` |
+| `POST /api/v1/invitations/lookup/` | Público | `token` → `organization`, `email`, `role`, `expires_at` y `account_exists` |
+| `POST /api/v1/invitations/accept/` | El usuario invitado, logueado | `token`. Responde como un ítem de `GET /organizations/` |
+| `POST /api/v1/invitations/register/` | Público | `token`, `password`, `password2`, `first_name`, `last_name`. Crea la cuenta y la suma. `201` |
+
+- `account_exists` le dice al frontend si mostrar un login (y después `accept/`) o un formulario de alta (`register/`).
+- `register/` funciona también con `ALLOW_PUBLIC_REGISTRATION=False`, y la cuenta nace verificada: seguir el link prueba el email. Después el usuario inicia sesión como siempre. Si el email ya tiene cuenta: `409` con `code` `account_exists`.
+- `accept/` necesita la cuenta del email invitado: otra recibe `403` con `code` `invitation_email_mismatch`.
+- Un token que no existe, venció, se revocó o ya se usó recibe `400` con `code` `invalid_invitation`, la misma respuesta para todos.
+- Solo un owner invita owners. Alguien que ya es miembro: `409` con `code` `already_member`. Invitar otra vez al mismo email reemplaza la invitación pendiente, y el link viejo deja de funcionar.
+- El token funciona una vez y vence a las `TENANCY_INVITATION_TIMEOUT_HOURS` (72 por defecto). La base guarda solo su hash SHA-256, y la auditoría lo guarda como `[REDACTED]`.
+- Las rutas públicas cuentan requests por IP con `THROTTLE_INVITATION_RATE` (`10/h`).
+- El admin lista las invitaciones con su estado y las revoca con **Revocar las invitaciones seleccionadas**. Solo se crean desde la API, que manda el email.
+
+### Eventos de webhooks
+
+Con los [Webhooks](#webhooks) encendidos, la base emite tres eventos más:
+
+| Evento | Cuándo | Datos |
+|---|---|---|
+| `organization.created` | `POST /api/v1/organizations/` | `organization_id`, `name`, `slug`, `owner_id`, `owner_email` |
+| `organization.member_added` | Se acepta una invitación, con `accept/` o con `register/` | `organization_id`, `user_id`, `email`, `role` |
+| `organization.member_removed` | Sacan a un miembro o se va | `organization_id`, `user_id`, `email`, `role`, `removed_by_id` |
+
+### Probarlo
+
+1. En el `.env`: `TENANCY_ENABLED=True` y `FRONTEND_INVITATION_URL='http://localhost:3000/join?token={token}'`. Sin la URL, Django no arranca.
+2. Levantá como siempre (`python manage.py runserver`, o `docker compose --profile app up --build` para la imagen de producción). No hay nada extra que instalar ni migrar además de `migrate`.
+3. Iniciá sesión, creá una organización con `POST /api/v1/organizations/` e invitá a alguien. Con `EMAIL_URL` vacío, el email con su link se imprime en la consola.
+
+### Modelos de una organización
+
+Heredá de `OrganizationScopedModel` y usá `OrganizationScopedViewSet`:
+
+```python
+# projects/models.py
+from django.db import models
+
+from organizations.models import OrganizationScopedModel
+
+
+class Project(OrganizationScopedModel):
+    name = models.CharField(max_length=100)
+```
+
+```python
+# projects/views.py
+from rest_framework import serializers
+
+from organizations.permissions import HasOrganizationRole, IsOrganizationMember
+from organizations.views import OrganizationScopedViewSet
+
+from .models import Project
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Project
+        fields = ["id", "name"]
+
+
+class ProjectViewSet(OrganizationScopedViewSet):
+    queryset = Project.objects.all()
+    serializer_class = ProjectSerializer
+
+    def get_permissions(self):
+        if self.action == "destroy":
+            return [HasOrganizationRole("admin")]
+        return [IsOrganizationMember()]
+```
+
+```python
+# core/urls.py
+from rest_framework.routers import SimpleRouter
+
+from projects.views import ProjectViewSet
+
+router = SimpleRouter()
+router.register("projects", ProjectViewSet, basename="project")
+
+urlpatterns += [
+    path("api/v1/organizations/<uuid:organization_id>/", include(router.urls)),
+]
+```
+
+- La organización sale de la URL: `GET /api/v1/organizations/<organization_id>/projects/`. El parámetro de la URL se tiene que llamar `organization_id`.
+- El listado, el detalle, la edición y el borrado solo ven las filas de esa organización. Una fila de otra da `404`, como si no existiera.
+- El alta asigna la organización de la URL. Un `organization` en el body se ignora, también al editar, así que una fila no se puede mover a otra organización.
+- La vista recibe `request.organization` y `request.membership` (con su `role`) una vez que pasó el permiso.
+- `OrganizationScopedMixin` hace lo mismo en una vista genérica propia (`ListCreateAPIView` y similares).
+
+### Permisos de una organización
+
+`organizations.permissions` trae dos clases que funcionan como [HasRole](#permisos):
+
+- `IsOrganizationMember` deja pasar a cualquier miembro de la organización de la URL.
+- `HasOrganizationRole("admin")` deja pasar a ese rol o a uno mayor: `owner` > `admin` > `member`. Un rol que no existe frena Django al importar la vista.
+- Se combinan con `&`, `|` y `~`, entre ellas y con las clases de DRF.
+
+| Request | Respuesta |
+|---|---|
+| Sin token | `401` |
+| Una organización que no existe, un id que no es un UUID o una organización de la que el usuario no es miembro | `404` con `code` `organization_not_found`. La misma respuesta para los tres, así nadie averigua qué organizaciones existen |
+| Un miembro sin el rol | `403` con `code` `permission_denied` |
+| Un superusuario que no es miembro | `404`: el staff trabaja las organizaciones desde el admin |
+| `TENANCY_ENABLED=False` | `404` |
+
+Los roles de una organización no tienen nada que ver con los [Roles](#roles) de `sync_roles`: esos valen para toda la instancia.
+
+### Probar el aislamiento
+
+Que los datos de una organización se filtren a otra es el error más caro de un SaaS multi-tenant. Cada vista de una organización lleva un test donde un miembro de la organización A intenta listar, leer, editar, borrar y crear filas de la organización B, y espera `404` en todos los casos. Hay un ejemplo en `organizations/tests/test_scoped_views.py`.
+
+### Apagarlo
+
+Con `TENANCY_ENABLED=False` las rutas de organizaciones vuelven a dar `404`. Las organizaciones, sus miembros y las filas de tus modelos quedan en la base y vuelven al encenderlo.
+
+---
 
 ## Auditoría
 

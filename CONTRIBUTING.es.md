@@ -106,6 +106,8 @@ Los tests viven en `<app>/tests/` y usan el test runner de Django (`django.test.
 - Un cambio de modelo viene con su migración. `makemigrations --check` no tiene que detectar nada.
 - Un campo sensible nuevo (password, token, key) tiene que quedar cubierto por
   `security/redaction.py`, con su test, para que nunca llegue en claro al audit log.
+- Una vista que trabaja sobre las filas de una organización lleva su test de aislamiento: un miembro
+  de otra organización recibe `404` al listar, leer, editar, borrar y crear.
 
 ## Cambios en la API
 

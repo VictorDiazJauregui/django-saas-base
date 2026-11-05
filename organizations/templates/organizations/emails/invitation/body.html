@@ -1,0 +1,4 @@
+{% load i18n %}<p>{% if inviter_email %}{% blocktranslate trimmed %}{{ inviter_email }} invited you to join {{ organization_name }} as {{ role }}.{% endblocktranslate %}{% else %}{% blocktranslate trimmed %}You were invited to join {{ organization_name }} as {{ role }}.{% endblocktranslate %}{% endif %} {% translate "To accept, open this link:" %}</p>
+<p><a href="{{ invitation_url }}">{{ invitation_url }}</a></p>
+<p>{% blocktranslate count hours=timeout_hours trimmed %}The link works once and expires in {{ hours }} hour.{% plural %}The link works once and expires in {{ hours }} hours.{% endblocktranslate %}</p>
+<p>{% translate "If you weren't expecting it, ignore this email." %}</p>

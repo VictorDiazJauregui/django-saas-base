@@ -10,6 +10,8 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 
+from organizations.admin import UserMembershipInline
+
 from .api_keys import assign_new_key, revoke_api_keys
 from .forms import (
     EmailUserChangeForm,
@@ -93,7 +95,9 @@ class UserAdmin(BaseUserAdmin):
 
     # Only on an existing user: the add form has no links to show.
     def get_inlines(self, request, obj):
-        return (ExternalIdentityInline,) if obj is not None else ()
+        if obj is None:
+            return ()
+        return (ExternalIdentityInline, UserMembershipInline)
 
     # One subquery for the whole page instead of a query per row.
     def get_queryset(self, request):

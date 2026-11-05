@@ -53,6 +53,19 @@ ERROR_EXAMPLES = {
         "Google can't be reached right now. Try again in a moment.",
         {},
     ),
+    "organization_not_found": (404, "Organization not found.", {}),
+    "last_owner": (409, "An organization needs at least one owner.", {}),
+    "already_member": (
+        409,
+        "This person is already a member of the organization.",
+        {},
+    ),
+    "invalid_invitation": (400, "This invitation is not valid or has expired.", {}),
+    "invitation_email_mismatch": (
+        403,
+        "This invitation is for another email address.",
+        {},
+    ),
     "too_many_code_attempts": (
         429,
         "Too many wrong codes. Expected available in 300 seconds.",

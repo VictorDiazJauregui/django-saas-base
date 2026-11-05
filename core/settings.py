@@ -30,6 +30,7 @@ from core.environment import (
     validate_environment,
     validate_frontend_link_url,
     validate_google_jwks_url,
+    validate_invitation_link_url,
     validate_optional_frontend_link_url,
     validate_page_sizes,
     validate_totp_encryption_key,
@@ -84,6 +85,7 @@ INSTALLED_APPS = [
     # Local apps
     "security.apps.SecurityConfig",
     "webhooks.apps.WebhooksConfig",
+    "organizations.apps.OrganizationsConfig",
 ]
 
 OPTIONAL_DEVELOPMENT_APPS = ["django_extensions"]
@@ -326,6 +328,19 @@ WEBHOOK_ALLOW_PRIVATE_URLS = parse_optional_bool(
     default=not is_deployed(ENVIRONMENT),
 )
 
+# --- Multi-tenancy ---
+# True turns on organizations with members and roles. Off, their routes answer 404 and the
+# tables stay empty.
+TENANCY_ENABLED = env.bool("TENANCY_ENABLED", default=False)
+# The invitation email links to this frontend page, which sends {token} back to the API.
+FRONTEND_INVITATION_URL = validate_invitation_link_url(
+    env.str("FRONTEND_INVITATION_URL", default=""), required=TENANCY_ENABLED
+)
+TENANCY_INVITATION_TIMEOUT = 3600 * parse_positive_int(
+    "TENANCY_INVITATION_TIMEOUT_HOURS",
+    env.str("TENANCY_INVITATION_TIMEOUT_HOURS", default="72"),
+)
+
 # --- Roles ---
 # The roles sync_roles applies as Django groups. Point it at your own module to declare them.
 ROLE_DEFINITIONS = "core.roles.ROLES"
@@ -369,6 +384,7 @@ THROTTLE_RATE_DEFAULTS = {
     "password": "5/h",
     "verify_email": "5/h",
     "mfa": "5/10m",
+    "invitation": "10/h",
 }
 
 REST_FRAMEWORK = {

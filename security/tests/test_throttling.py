@@ -24,6 +24,7 @@ DEFAULT_RATES = {
     "password": "5/h",
     "verify_email": "5/h",
     "mfa": "5/10m",
+    "invitation": "10/h",
 }
 
 

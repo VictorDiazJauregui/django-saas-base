@@ -746,3 +746,233 @@ msgstr "Volver a los endpoints de webhook"
 #: security/google_login.py:40
 msgid "An account with this email already exists. Log in with its password."
 msgstr "Ya existe una cuenta con este email. Inicie sesión con su contraseña."
+
+#: organizations/active_organization.py
+msgid "Organization not found."
+msgstr "Organización no encontrada."
+
+#: organizations/admin.py
+msgid "organizations"
+msgstr "organizaciones"
+
+#: organizations/admin.py
+msgid "members"
+msgstr "miembros"
+
+#: organizations/apps.py
+msgid "Organizations"
+msgstr "Organizaciones"
+
+#: organizations/membership_changes.py
+msgid "An organization needs at least one owner."
+msgstr "Una organización necesita al menos un owner."
+
+#: organizations/models.py
+msgid "slug"
+msgstr "slug"
+
+#: organizations/models.py
+msgid "organization"
+msgstr "organización"
+
+#: organizations/models.py
+msgid "role"
+msgstr "rol"
+
+#: organizations/models.py
+msgid "membership"
+msgstr "membresía"
+
+#: organizations/models.py
+msgid "memberships"
+msgstr "membresías"
+
+#: organizations/roles.py
+msgid "Owner"
+msgstr "Owner"
+
+#: organizations/roles.py
+msgid "Admin"
+msgstr "Admin"
+
+#: organizations/roles.py
+msgid "Member"
+msgstr "Miembro"
+
+#: organizations/api_docs.py
+msgid "Answers 404 unless TENANCY_ENABLED=True."
+msgstr "Responde 404 salvo que TENANCY_ENABLED=True."
+
+#: organizations/api_docs.py
+msgid "List my organizations"
+msgstr "Listar mis organizaciones"
+
+#: organizations/api_docs.py
+msgid "The organizations the user belongs to, with the user's role in each. "
+msgstr "Las organizaciones a las que pertenece el usuario, con su rol en cada una. "
+
+#: organizations/api_docs.py
+msgid "Create an organization"
+msgstr "Crear una organización"
+
+#: organizations/api_docs.py
+msgid "The user who creates it becomes its owner. Without a slug, it comes from the name. "
+msgstr "Quien la crea queda como owner. Sin slug, sale del nombre. "
+
+#: organizations/api_docs.py
+msgid "Get an organization"
+msgstr "Obtener una organización"
+
+#: organizations/api_docs.py
+msgid "Rename an organization"
+msgstr "Renombrar una organización"
+
+#: organizations/api_docs.py
+msgid "Admins and owners only. "
+msgstr "Solo admins y owners. "
+
+#: organizations/api_docs.py
+msgid "List the members of an organization"
+msgstr "Listar los miembros de una organización"
+
+#: organizations/api_docs.py
+msgid "Change the role of a member"
+msgstr "Cambiar el rol de un miembro"
+
+#: organizations/api_docs.py
+msgid "Admins change members and admins; only an owner gives or takes the owner role. "
+msgstr "Los admins cambian a members y admins; solo un owner da o quita el rol owner. "
+
+#: organizations/api_docs.py
+msgid "Remove a member, or leave the organization"
+msgstr "Sacar a un miembro, o salir de la organización"
+
+#: organizations/api_docs.py
+msgid "Admins remove members and admins; only an owner removes an owner. Any member removes their own membership to leave. "
+msgstr "Los admins sacan a members y admins; solo un owner saca a un owner. Cualquier miembro borra su propia membresía para salir. "
+
+#: organizations/api_docs.py
+msgid "Removed."
+msgstr "Eliminado."
+
+#: organizations/admin.py
+msgid "Revoke selected invitations"
+msgstr "Revocar las invitaciones seleccionadas"
+
+#: organizations/api_errors.py
+msgid "This invitation is not valid or has expired."
+msgstr "Esta invitación no es válida o venció."
+
+#: organizations/api_errors.py
+msgid "This invitation is for another email address."
+msgstr "Esta invitación es para otra dirección de email."
+
+#: organizations/api_errors.py
+msgid "This person is already a member of the organization."
+msgstr "Esta persona ya es miembro de la organización."
+
+#: organizations/invitation_api_docs.py
+msgid "List the pending invitations"
+msgstr "Listar las invitaciones pendientes"
+
+#: organizations/invitation_api_docs.py
+msgid "Invite someone by email"
+msgstr "Invitar a alguien por email"
+
+#: organizations/invitation_api_docs.py
+msgid "Emails a link to FRONTEND_INVITATION_URL. A new invitation to the same email replaces the pending one. Only an owner invites owners. "
+msgstr "Manda por email un link a FRONTEND_INVITATION_URL. Una invitación nueva al mismo email reemplaza la pendiente. Solo un owner invita owners. "
+
+#: organizations/invitation_api_docs.py
+msgid "Revoke a pending invitation"
+msgstr "Revocar una invitación pendiente"
+
+#: organizations/invitation_api_docs.py
+msgid "Revoked."
+msgstr "Revocada."
+
+#: organizations/invitation_api_docs.py
+msgid "Describe an invitation"
+msgstr "Describir una invitación"
+
+#: organizations/invitation_api_docs.py
+msgid "Public. With account_exists the frontend shows a login or a sign-up form. "
+msgstr "Público. Con account_exists el frontend muestra un login o un formulario de alta. "
+
+#: organizations/invitation_api_docs.py
+msgid "Accept an invitation"
+msgstr "Aceptar una invitación"
+
+#: organizations/invitation_api_docs.py
+msgid "The logged-in user must have the invited email. "
+msgstr "El usuario logueado tiene que tener el email invitado. "
+
+#: organizations/invitation_api_docs.py
+msgid "Create the account from an invitation"
+msgstr "Crear la cuenta desde una invitación"
+
+#: organizations/invitation_api_docs.py
+msgid "Public, also with the public registration closed. The account starts verified; log in afterwards. "
+msgstr "Público, también con el registro público cerrado. La cuenta nace verificada; después se inicia sesión. "
+
+#: organizations/models.py
+msgid "Accepted"
+msgstr "Aceptada"
+
+#: organizations/models.py
+msgid "Revoked"
+msgstr "Revocada"
+
+#: organizations/models.py
+msgid "Expired"
+msgstr "Vencida"
+
+#: organizations/models.py
+msgid "invited by"
+msgstr "invitado por"
+
+#: organizations/models.py
+msgid "accepted at"
+msgstr "aceptada el"
+
+#: organizations/models.py
+msgid "invitation"
+msgstr "invitación"
+
+#: organizations/models.py
+msgid "invitations"
+msgstr "invitaciones"
+
+#: organizations/templates/organizations/emails/invitation/body.html
+msgid "%(inviter_email)s invited you to join %(organization_name)s as %(role)s."
+msgstr "%(inviter_email)s te invitó a sumarte a %(organization_name)s como %(role)s."
+
+#: organizations/templates/organizations/emails/invitation/body.html
+msgid "You were invited to join %(organization_name)s as %(role)s."
+msgstr "Te invitaron a sumarte a %(organization_name)s como %(role)s."
+
+#: organizations/templates/organizations/emails/invitation/body.html
+msgid "To accept, open this link:"
+msgstr "Para aceptar, abrí este link:"
+
+#: organizations/templates/organizations/emails/invitation/body.html
+msgid "If you weren't expecting it, ignore this email."
+msgstr "Si no la esperabas, ignorá este email."
+
+#: organizations/templates/organizations/emails/invitation/subject.txt
+msgid "You were invited to %(organization_name)s"
+msgstr "Te invitaron a %(organization_name)s"
+
+#: organizations/admin.py
+#, python-format
+msgid "%(count)d invitation revoked."
+msgid_plural "%(count)d invitations revoked."
+msgstr[0] "%(count)d invitación revocada."
+msgstr[1] "%(count)d invitaciones revocadas."
+
+#: organizations/templates/organizations/emails/invitation/body.html
+#, python-format
+msgid "The link works once and expires in %(hours)s hour."
+msgid_plural "The link works once and expires in %(hours)s hours."
+msgstr[0] "El link funciona una vez y vence en %(hours)s hora."
+msgstr[1] "El link funciona una vez y vence en %(hours)s horas."

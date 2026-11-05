@@ -1,10 +1,19 @@
 from django.contrib import admin, messages
-from django.db.models import Count
+from django.db.models import Count, QuerySet
+from django.http import HttpRequest, HttpResponse
+from django.template.response import TemplateResponse
+from django.utils.cache import add_never_cache_headers
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 
+from security.api_keys import assign_new_key
+
 from .invitations import revoke_invitations
-from .models import Invitation, Membership, Organization
+from .models import Invitation, Membership, Organization, OrganizationApiKey
+from .organization_api_keys import (
+    ORGANIZATION_API_KEY_MARKER,
+    revoke_organization_api_keys,
+)
 
 
 class OrganizationMembershipInline(admin.TabularInline):
@@ -79,5 +88,86 @@ class InvitationAdmin(admin.ModelAdmin):
         count = revoke_invitations(queryset)
         message = ngettext(
             "%(count)d invitation revoked.", "%(count)d invitations revoked.", count
+        )
+        self.message_user(request, message % {"count": count}, messages.SUCCESS)
+
+
+ORGANIZATION_API_KEY_ADD_FIELDS = ("organization", "name", "role", "expires_at")
+ORGANIZATION_API_KEY_DETAIL_FIELDS = (
+    "organization",
+    "name",
+    "prefix",
+    "role",
+    "created_by",
+    "created_at",
+    "last_used_at",
+    "expires_at",
+    "revoked_at",
+)
+ORGANIZATION_API_KEY_CREATED_TEMPLATE = (
+    "admin/organizations/organizationapikey/created.html"
+)
+
+
+# Same flow as the personal keys: created, used and revoked, never edited. The key exists only
+# in the page that answers the creation, so it never reaches the database, the session or a cookie.
+@admin.register(OrganizationApiKey)
+class OrganizationApiKeyAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "organization",
+        "prefix",
+        "role",
+        "last_used_at",
+        "revoked_at",
+    )
+    list_select_related = ("organization",)
+    list_filter = ("role", "created_at", "revoked_at")
+    search_fields = ("prefix", "name", "organization__name", "organization__slug")
+    autocomplete_fields = ("organization",)
+    actions = ("revoke_selected",)
+
+    def get_fields(self, request: HttpRequest, obj: OrganizationApiKey | None = None):
+        if obj is None:
+            return ORGANIZATION_API_KEY_ADD_FIELDS
+        return ORGANIZATION_API_KEY_DETAIL_FIELDS
+
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: OrganizationApiKey | None = None
+    ):
+        return () if obj is None else ORGANIZATION_API_KEY_DETAIL_FIELDS
+
+    def has_change_permission(self, request: HttpRequest, obj=None) -> bool:
+        return False
+
+    def has_revoke_permission(self, request: HttpRequest) -> bool:
+        opts = self.opts
+        return request.user.has_perm(f"{opts.app_label}.change_{opts.model_name}")
+
+    def save_model(self, request, obj, form, change) -> None:
+        obj.created_by = request.user
+        request.new_api_key = assign_new_key(obj, ORGANIZATION_API_KEY_MARKER)
+        super().save_model(request, obj, form, change)
+
+    def response_add(self, request, obj, post_url_continue=None) -> HttpResponse:
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.opts,
+            "api_key": obj,
+            "raw_key": request.new_api_key,
+        }
+        response = TemplateResponse(
+            request, ORGANIZATION_API_KEY_CREATED_TEMPLATE, context
+        )
+        add_never_cache_headers(response)
+        return response
+
+    @admin.action(description=_("Revoke selected API keys"), permissions=["revoke"])
+    def revoke_selected(
+        self, request: HttpRequest, queryset: QuerySet[OrganizationApiKey]
+    ) -> None:
+        count = revoke_organization_api_keys(queryset)
+        message = ngettext(
+            "%(count)d API key revoked.", "%(count)d API keys revoked.", count
         )
         self.message_user(request, message % {"count": count}, messages.SUCCESS)

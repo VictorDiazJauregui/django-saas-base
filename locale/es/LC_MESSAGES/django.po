@@ -976,3 +976,17 @@ msgid "The link works once and expires in %(hours)s hour."
 msgid_plural "The link works once and expires in %(hours)s hours."
 msgstr[0] "El link funciona una vez y vence en %(hours)s hora."
 msgstr[1] "El link funciona una vez y vence en %(hours)s horas."
+
+#: organizations/checks.py
+msgid "This model doesn't store which organization each row belongs to."
+msgstr "Este modelo no guarda a qué organización pertenece cada fila."
+
+#: organizations/checks.py
+msgid ""
+"Inherit from OrganizationScopedModel, add a required ForeignKey to a model "
+"that has one, or inherit from GlobalModel if every organization shares it on "
+"purpose."
+msgstr ""
+"Heredá de OrganizationScopedModel, agregá una ForeignKey obligatoria a un "
+"modelo que la tenga, o heredá de GlobalModel si todas las organizaciones lo "
+"comparten a propósito."

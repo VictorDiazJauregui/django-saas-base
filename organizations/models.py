@@ -137,3 +137,8 @@ class OrganizationScopedModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class GlobalModel(models.Model):
+    class Meta:
+        abstract = True

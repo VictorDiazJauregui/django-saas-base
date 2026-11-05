@@ -1323,6 +1323,56 @@ Los roles de una organización no tienen nada que ver con los [Roles](#roles) de
 
 Que los datos de una organización se filtren a otra es el error más caro de un SaaS multi-tenant. Cada vista de una organización lleva un test donde un miembro de la organización A intenta listar, leer, editar, borrar y crear filas de la organización B, y espera `404` en todos los casos. Hay un ejemplo en `organizations/tests/test_scoped_views.py`.
 
+### Chequeo de aislamiento
+
+Con `TENANCY_ENABLED=True`, Django revisa todos los modelos al arrancar, en `check` y antes de los tests. Un modelo pasa si tiene una `ForeignKey` obligatoria a `Organization`, o una `ForeignKey` obligatoria a un modelo que pasa (`InvoiceLine` → `Invoice` → organización). Si no:
+
+```
+WARNINGS:
+billing.Invoice: (organizations.W001) This model doesn't store which organization each row belongs to.
+	HINT: Inherit from OrganizationScopedModel, add a required ForeignKey to a model that has one, or inherit from GlobalModel if every organization shares it on purpose.
+```
+
+Es un aviso: `runserver` y `migrate` corren igual, pero `check --deploy --fail-level WARNING` y el paso "Deploy checks with multi-tenancy on" de la CI fallan.
+
+Si las filas son de una organización:
+
+```python
+from django.db import models
+
+from organizations.models import OrganizationScopedModel
+
+
+class Invoice(OrganizationScopedModel):
+    number = models.CharField(max_length=20)
+
+
+class InvoiceLine(models.Model):
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+```
+
+`InvoiceLine` no necesita un `organization` propio: lo tiene a través de `Invoice`.
+
+Si todas las organizaciones comparten el modelo a propósito, como una lista de países:
+
+```python
+from django.db import models
+
+from organizations.models import GlobalModel
+
+
+class Country(GlobalModel):
+    code = models.CharField(max_length=2, unique=True)
+```
+
+`GlobalModel` no agrega campos ni migraciones. Junto a otra clase base, va última, porque Django toma el `Meta` de la primera: `class Plan(TimestampedModel, GlobalModel)`. La base marca así sus propios modelos globales (`User`, `AuditLog`, `ApiKey`, los de webhooks).
+
+- Una `ForeignKey` opcional (`null=True`) no cuenta, porque permite filas sin organización. Tampoco una `ForeignKey` a un modelo global.
+- Se saltean los modelos proxy, los que tienen `managed = False`, las tablas que Django crea para un `ManyToManyField` y los modelos de Django y de los paquetes instalados. Una app instalada como paquete fuera de la carpeta del proyecto tampoco se revisa.
+- El chequeo lee modelos, no consultas: no reemplaza el [test de aislamiento](#probar-el-aislamiento) de cada vista.
+- `SILENCED_SYSTEM_CHECKS = ["organizations.W001"]` lo silencia para todo el proyecto. Mejor `GlobalModel`, que lo dice al lado del modelo.
+
 ### Apagarlo
 
 Con `TENANCY_ENABLED=False` las rutas de organizaciones vuelven a dar `404`. Las organizaciones, sus miembros y las filas de tus modelos quedan en la base y vuelven al encenderlo.

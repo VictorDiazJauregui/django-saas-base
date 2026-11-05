@@ -4,9 +4,10 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from core.models import TimestampedModel
+from organizations.models import GlobalModel
 
 
-class WebhookEndpoint(TimestampedModel):
+class WebhookEndpoint(TimestampedModel, GlobalModel):
     url = models.URLField(_("URL"), max_length=500)
     description = models.CharField(_("description"), max_length=200, blank=True)
     events = ArrayField(
@@ -27,7 +28,7 @@ class WebhookEndpoint(TimestampedModel):
         return self.url
 
 
-class WebhookDelivery(TimestampedModel):
+class WebhookDelivery(TimestampedModel, GlobalModel):
     PENDING = "pending"
     SUCCEEDED = "succeeded"
     FAILED = "failed"

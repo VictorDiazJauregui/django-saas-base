@@ -42,6 +42,13 @@ EXPECTED_OPERATIONS = {
     ("get", f"{ORGANIZATION}/api-keys/"),
     ("post", f"{ORGANIZATION}/api-keys/"),
     ("delete", f"{ORGANIZATION}/api-keys/{{key_id}}/"),
+    ("get", f"{ORGANIZATION}/webhooks/"),
+    ("post", f"{ORGANIZATION}/webhooks/"),
+    ("get", f"{ORGANIZATION}/webhooks/{{endpoint_id}}/"),
+    ("patch", f"{ORGANIZATION}/webhooks/{{endpoint_id}}/"),
+    ("delete", f"{ORGANIZATION}/webhooks/{{endpoint_id}}/"),
+    ("post", f"{ORGANIZATION}/webhooks/{{endpoint_id}}/rotate-secret/"),
+    ("get", f"{ORGANIZATION}/webhooks/{{endpoint_id}}/deliveries/"),
     ("post", "/api/v1/invitations/lookup/"),
     ("post", "/api/v1/invitations/accept/"),
     ("post", "/api/v1/invitations/register/"),
@@ -107,6 +114,19 @@ class OpenApiSchemaTests(SimpleTestCase):
 
         self.assertEqual((scheme["type"], scheme["in"]), ("apiKey", "header"))
         self.assertIn("api_key", component["properties"])
+
+    def test_the_webhook_secret_is_documented_only_where_it_shows_up(self):
+        created = response_schema(
+            self.operation("post", f"{ORGANIZATION}/webhooks/"), "201"
+        )
+        listed = response_schema(
+            self.operation("get", f"{ORGANIZATION}/webhooks/{{endpoint_id}}/"), "200"
+        )
+        component = self.components["schemas"][created["$ref"].split("/")[-1]]
+        listed_component = self.components["schemas"][listed["$ref"].split("/")[-1]]
+
+        self.assertIn("secret", component["properties"])
+        self.assertNotIn("secret", listed_component["properties"])
 
     def test_the_login_documents_the_second_factor_challenge(self):
         answer = response_schema(self.operation("post", f"{AUTH}/login/"), "200")

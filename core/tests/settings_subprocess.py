@@ -55,6 +55,7 @@ PRODUCTION_ENVIRONMENT = {
     "WEBHOOK_MAX_ATTEMPTS": "5",
     "WEBHOOK_TIMEOUT_SECONDS": "10",
     "WEBHOOK_ALLOW_PRIVATE_URLS": "",
+    "TENANCY_ENABLED": "False",
     "GOOGLE_JWKS_URL": "https://www.googleapis.com/oauth2/v3/certs",
     "CORS_ALLOWED_ORIGINS": "",
     "API_PAGE_SIZE": "20",

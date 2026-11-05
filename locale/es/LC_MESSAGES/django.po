@@ -990,3 +990,93 @@ msgstr ""
 "Heredá de OrganizationScopedModel, agregá una ForeignKey obligatoria a un "
 "modelo que la tenga, o heredá de GlobalModel si todas las organizaciones lo "
 "comparten a propósito."
+
+#: organizations/slugs.py
+msgid "A slug can't have the shape of an id."
+msgstr "Un slug no puede tener forma de id."
+
+#: organizations/slugs.py
+msgid "A slug can only use lowercase letters."
+msgstr "Un slug solo puede usar letras minúsculas."
+
+#: organizations/api_errors.py
+msgid "Organization API keys can't use this route."
+msgstr "Las API keys de organización no pueden usar esta ruta."
+
+#: organizations/models.py
+msgid "created by"
+msgstr "creada por"
+
+#: organizations/models.py
+msgid "organization API key"
+msgstr "API key de organización"
+
+#: organizations/models.py
+msgid "organization API keys"
+msgstr "API keys de organización"
+
+#: organizations/serializers.py
+msgid "The expiry date must be in the future."
+msgstr "La fecha de vencimiento tiene que ser futura."
+
+#: organizations/api_key_schema.py
+msgid ""
+"Api-Key <key> with a key that starts with org_. Only with "
+"TENANCY_ENABLED=True and API_KEYS_ENABLED=True; an admin of the organization "
+"creates it in /api/v1/organizations/<organization>/api-keys/."
+msgstr ""
+"Api-Key <key> con una clave que empieza con org_. Solo con "
+"TENANCY_ENABLED=True y API_KEYS_ENABLED=True; la crea un admin de la "
+"organización en /api/v1/organizations/<organization>/api-keys/."
+
+#: organizations/organization_api_key_api_docs.py
+msgid "Answers 404 unless TENANCY_ENABLED=True and API_KEYS_ENABLED=True."
+msgstr "Responde 404 salvo con TENANCY_ENABLED=True y API_KEYS_ENABLED=True."
+
+#: organizations/organization_api_key_api_docs.py
+msgid "List the API keys of the organization"
+msgstr "Lista las API keys de la organización"
+
+#: organizations/organization_api_key_api_docs.py
+msgid "Admins and owners only. Active and revoked keys, never the key. "
+msgstr "Solo admins y owners. Claves activas y revocadas, nunca la clave. "
+
+#: organizations/organization_api_key_api_docs.py
+msgid "Create an API key of the organization"
+msgstr "Crea una API key de la organización"
+
+#: organizations/organization_api_key_api_docs.py
+msgid ""
+"Admins and owners only. The answer is the only place the key shows up: it is "
+"not stored. The role is admin or member, never owner. "
+msgstr ""
+"Solo admins y owners. La respuesta es el único lugar donde aparece la clave: "
+"no se guarda. El rol es admin o member, nunca owner. "
+
+#: organizations/organization_api_key_api_docs.py
+msgid "Revoke an API key of the organization"
+msgstr "Revoca una API key de la organización"
+
+#: organizations/organization_api_key_api_docs.py
+msgid ""
+"Admins and owners only. The key stops working at once; the record stays. "
+msgstr ""
+"Solo admins y owners. La clave deja de funcionar en el momento; el registro "
+"queda. "
+
+#: organizations/templates/admin/organizations/organizationapikey/created.html
+#, python-format
+msgid ""
+"The key \"%(name)s\" of the organization %(organization)s, with the role "
+"%(role)s, is ready. Copy it now: it is not stored and won't be shown again."
+msgstr ""
+"La clave \"%(name)s\" de la organización %(organization)s, con el rol "
+"%(role)s, está lista. Copiala ahora: no se guarda y no se vuelve a mostrar."
+
+#: security/models.py
+msgid "API key prefix"
+msgstr "Prefijo de la API key"
+
+#: security/models.py
+msgid "organization id"
+msgstr "id de la organización"

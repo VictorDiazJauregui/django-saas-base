@@ -9,15 +9,24 @@ from django.utils.translation import gettext_lazy as _
 
 from core.models import TimestampedModel
 
-from .roles import OrganizationRole
-from .slugs import SLUG_MAX_LENGTH, build_unique_slug
+from .roles import ORGANIZATION_API_KEY_ROLES, OrganizationRole
+from .slugs import (
+    SLUG_MAX_LENGTH,
+    build_unique_slug,
+    reject_uppercase_slug,
+    reject_uuid_shaped_slug,
+)
 
 
 class Organization(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(_("name"), max_length=100)
     slug = models.SlugField(
-        _("slug"), max_length=SLUG_MAX_LENGTH, unique=True, blank=True
+        _("slug"),
+        max_length=SLUG_MAX_LENGTH,
+        unique=True,
+        blank=True,
+        validators=[reject_uuid_shaped_slug, reject_uppercase_slug],
     )
 
     class Meta:
@@ -137,6 +146,58 @@ class OrganizationScopedModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+# Belongs to the organization, not to a person: it keeps working when whoever created it leaves.
+# Only the hash is stored, as with personal API keys.
+class OrganizationApiKey(TimestampedModel, OrganizationScopedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(_("name"), max_length=100)
+    prefix = models.CharField(_("prefix"), max_length=16, unique=True, editable=False)
+    key_hash = models.CharField(max_length=64, editable=False)
+    role = models.CharField(
+        _("role"),
+        max_length=10,
+        choices=ORGANIZATION_API_KEY_ROLES,
+        default=OrganizationRole.MEMBER,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="+",
+        verbose_name=_("created by"),
+    )
+    expires_at = models.DateTimeField(_("expires at"), null=True, blank=True)
+    revoked_at = models.DateTimeField(
+        _("revoked at"), null=True, blank=True, editable=False
+    )
+    last_used_at = models.DateTimeField(
+        _("last used at"), null=True, blank=True, editable=False
+    )
+
+    class Meta:
+        verbose_name = _("organization API key")
+        verbose_name_plural = _("organization API keys")
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    role__in=[role for role, _label in ORGANIZATION_API_KEY_ROLES]
+                ),
+                name="organization_api_key_role",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.prefix})"
+
+    def is_usable(self) -> bool:
+        if self.revoked_at is not None:
+            return False
+        return self.expires_at is None or self.expires_at > timezone.now()
 
 
 class GlobalModel(models.Model):

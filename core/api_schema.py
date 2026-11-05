@@ -65,6 +65,11 @@ ERROR_EXAMPLES = {
         "This person is already a member of the organization.",
         {},
     ),
+    "webhook_endpoint_limit_reached": (
+        409,
+        "This organization has reached its limit of webhook endpoints.",
+        {},
+    ),
     "invalid_invitation": (400, "This invitation is not valid or has expired.", {}),
     "invitation_email_mismatch": (
         403,

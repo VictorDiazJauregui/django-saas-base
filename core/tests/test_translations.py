@@ -1,5 +1,6 @@
 import ast
 import gettext
+import re
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -130,6 +131,10 @@ def append_text(entry, keyword, text):
     entry.translations[index] = entry.translations.get(index, "") + text
 
 
+def read_plural_form_count(path: Path) -> int:
+    return int(re.search(r"nplurals=(\d+);", path.read_text()).group(1))
+
+
 def compiled_key(entry, index):
     msgid = f"{entry.context}\x04{entry.msgid}" if entry.context else entry.msgid
     return (msgid, int(index)) if entry.plural else msgid
@@ -152,6 +157,15 @@ class SpanishCatalogTests(SimpleTestCase):
 
     def test_no_entry_is_fuzzy(self):
         self.assertEqual([e.msgid for e in self.entries if e.fuzzy], [])
+
+    # msgfmt, and so compilemessages, rejects the whole file if one plural entry is short.
+    def test_plural_entries_have_every_form_the_catalog_declares(self) -> None:
+        forms = {str(index) for index in range(read_plural_form_count(PO_FILE))}
+        short = [
+            e.msgid for e in self.entries if e.plural and set(e.translations) != forms
+        ]
+
+        self.assertEqual(short, [])
 
     def test_compiled_catalog_matches_the_source(self):
         with MO_FILE.open("rb") as compiled_file:

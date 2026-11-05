@@ -184,6 +184,7 @@ class AuditLogAdmin(admin.ModelAdmin):
         "method",
         "ip_address",
         "user_agent",
+        "api_key_prefix",
     )
     readonly_fields = (
         "user",
@@ -192,6 +193,8 @@ class AuditLogAdmin(admin.ModelAdmin):
         "method",
         "path",
         "status_code",
+        "api_key_prefix",
+        "organization_id",
         "pretty_payload",
         "timestamp",
     )
@@ -206,6 +209,8 @@ class AuditLogAdmin(admin.ModelAdmin):
         "method",
         "path",
         "status_code",
+        "api_key_prefix",
+        "organization_id",
         "pretty_payload",
     )
 

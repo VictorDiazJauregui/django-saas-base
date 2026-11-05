@@ -1,4 +1,5 @@
 from core.client_ip import get_client_ip
+from organizations.api_key_actor import OrganizationApiKeyActor
 
 from .audit_payload import BODY_METHODS, read_audit_payload
 from .models import AuditLog
@@ -10,6 +11,16 @@ AUDITED_METHODS = BODY_METHODS | {"DELETE"}
 def truncate_to_column_length(field_name, value):
     max_length = AuditLog._meta.get_field(field_name).max_length
     return value[:max_length]
+
+
+def describe_organization_api_key(user: object) -> dict:
+    if not isinstance(user, OrganizationApiKeyActor):
+        return {}
+    api_key = user.organization_api_key
+    return {
+        "api_key_prefix": api_key.prefix,
+        "organization_id": api_key.organization_id,
+    }
 
 
 class AuditMiddleware:
@@ -35,6 +46,7 @@ class AuditMiddleware:
             path=truncate_to_column_length("path", request.path),
             payload=redact_sensitive_values(payload),
             status_code=response.status_code,
+            **describe_organization_api_key(request.user),
         )
 
     def resolve_user(self, request):

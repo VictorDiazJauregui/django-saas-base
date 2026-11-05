@@ -120,6 +120,9 @@ class AuditLog(GlobalModel):
     status_code = models.PositiveSmallIntegerField(
         _("Status code"), null=True, blank=True
     )
+    api_key_prefix = models.CharField(_("API key prefix"), max_length=16, blank=True)
+    # A plain value and not a key to the organization: the record outlives the organization.
+    organization_id = models.UUIDField(_("organization id"), null=True, blank=True)
     timestamp = models.DateTimeField(_("Timestamp"), auto_now_add=True)
 
     class Meta:

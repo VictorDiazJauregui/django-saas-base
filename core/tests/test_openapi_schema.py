@@ -39,6 +39,9 @@ EXPECTED_OPERATIONS = {
     ("get", f"{ORGANIZATION}/invitations/"),
     ("post", f"{ORGANIZATION}/invitations/"),
     ("delete", f"{ORGANIZATION}/invitations/{{invitation_id}}/"),
+    ("get", f"{ORGANIZATION}/api-keys/"),
+    ("post", f"{ORGANIZATION}/api-keys/"),
+    ("delete", f"{ORGANIZATION}/api-keys/{{key_id}}/"),
     ("post", "/api/v1/invitations/lookup/"),
     ("post", "/api/v1/invitations/accept/"),
     ("post", "/api/v1/invitations/register/"),
@@ -94,6 +97,16 @@ class OpenApiSchemaTests(SimpleTestCase):
         self.assertIn(
             {"apiKeyAuth": []}, self.operation("get", f"{AUTH}/me/")["security"]
         )
+
+    def test_the_organization_key_scheme_and_its_one_time_key_are_documented(self):
+        scheme = self.components["securitySchemes"]["organizationApiKeyAuth"]
+        answer = response_schema(
+            self.operation("post", f"{ORGANIZATION}/api-keys/"), "201"
+        )
+        component = self.components["schemas"][answer["$ref"].split("/")[-1]]
+
+        self.assertEqual((scheme["type"], scheme["in"]), ("apiKey", "header"))
+        self.assertIn("api_key", component["properties"])
 
     def test_the_login_documents_the_second_factor_challenge(self):
         answer = response_schema(self.operation("post", f"{AUTH}/login/"), "200")

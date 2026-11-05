@@ -746,3 +746,55 @@ msgstr "Volver a los endpoints de webhook"
 #: security/google_login.py:40
 msgid "An account with this email already exists. Log in with its password."
 msgstr "Ya existe una cuenta con este email. Inicie sesión con su contraseña."
+
+#: organizations/active_organization.py
+msgid "Organization not found."
+msgstr "Organización no encontrada."
+
+#: organizations/admin.py
+msgid "organizations"
+msgstr "organizaciones"
+
+#: organizations/admin.py
+msgid "members"
+msgstr "miembros"
+
+#: organizations/apps.py
+msgid "Organizations"
+msgstr "Organizaciones"
+
+#: organizations/membership_changes.py
+msgid "An organization needs at least one owner."
+msgstr "Una organización necesita al menos un owner."
+
+#: organizations/models.py
+msgid "slug"
+msgstr "slug"
+
+#: organizations/models.py
+msgid "organization"
+msgstr "organización"
+
+#: organizations/models.py
+msgid "role"
+msgstr "rol"
+
+#: organizations/models.py
+msgid "membership"
+msgstr "membresía"
+
+#: organizations/models.py
+msgid "memberships"
+msgstr "membresías"
+
+#: organizations/roles.py
+msgid "Owner"
+msgstr "Owner"
+
+#: organizations/roles.py
+msgid "Admin"
+msgstr "Admin"
+
+#: organizations/roles.py
+msgid "Member"
+msgstr "Miembro"

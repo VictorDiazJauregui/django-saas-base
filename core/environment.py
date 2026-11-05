@@ -9,6 +9,9 @@ VALID_ENVIRONMENTS = DEVELOPMENT_ENVIRONMENTS + DEPLOYED_ENVIRONMENTS
 WILDCARD_HOST = "*"
 LINK_MARKERS = ("{uid}", "{token}")
 LINK_SCHEMES = ("http", "https")
+INVITATION_LINK_MARKERS = ("{token}",)
+ACCOUNT_LINK_EXAMPLE = "https://app.example.com/reset-password?uid={uid}&token={token}"
+INVITATION_LINK_EXAMPLE = "https://app.example.com/join?token={token}"
 GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 
 
@@ -133,18 +136,8 @@ def validate_page_sizes(page_size, max_page_size):
 
 
 def validate_frontend_link_url(name, url):
-    parts = urlsplit(url)
-    if parts.scheme not in LINK_SCHEMES or not parts.hostname:
-        raise ImproperlyConfigured(
-            f"{name}={url!r} is not valid. Use the absolute URL of the frontend page, "
-            "such as https://app.example.com/reset-password?uid={uid}&token={token}."
-        )
-    missing_markers = [marker for marker in LINK_MARKERS if marker not in url]
-    if missing_markers:
-        raise ImproperlyConfigured(
-            f"{name} must contain {{uid}} and {{token}}, which the API replaces with the "
-            f"values the frontend sends back. Missing: {', '.join(missing_markers)}."
-        )
+    ensure_absolute_link(name, url, ACCOUNT_LINK_EXAMPLE)
+    ensure_link_markers(name, url, LINK_MARKERS)
     return url
 
 
@@ -152,6 +145,32 @@ def validate_optional_frontend_link_url(name, url, required):
     if not url and not required:
         return ""
     return validate_frontend_link_url(name, url)
+
+
+def validate_invitation_link_url(url, required):
+    if not url and not required:
+        return ""
+    ensure_absolute_link("FRONTEND_INVITATION_URL", url, INVITATION_LINK_EXAMPLE)
+    ensure_link_markers("FRONTEND_INVITATION_URL", url, INVITATION_LINK_MARKERS)
+    return url
+
+
+def ensure_absolute_link(name, url, example):
+    parts = urlsplit(url)
+    if parts.scheme not in LINK_SCHEMES or not parts.hostname:
+        raise ImproperlyConfigured(
+            f"{name}={url!r} is not valid. Use the absolute URL of the frontend page, "
+            f"such as {example}."
+        )
+
+
+def ensure_link_markers(name, url, markers):
+    missing_markers = [marker for marker in markers if marker not in url]
+    if missing_markers:
+        raise ImproperlyConfigured(
+            f"{name} must contain {' and '.join(markers)}, which the API replaces with "
+            f"the values the frontend sends back. Missing: {', '.join(missing_markers)}."
+        )
 
 
 LOCKOUT_FIELDS = ("username", "ip_address", "user_agent")

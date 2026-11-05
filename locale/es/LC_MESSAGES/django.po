@@ -969,6 +969,7 @@ msgid "%(count)d invitation revoked."
 msgid_plural "%(count)d invitations revoked."
 msgstr[0] "%(count)d invitación revocada."
 msgstr[1] "%(count)d invitaciones revocadas."
+msgstr[2] "%(count)d invitaciones revocadas."
 
 #: organizations/templates/organizations/emails/invitation/body.html
 #, python-format
@@ -976,6 +977,7 @@ msgid "The link works once and expires in %(hours)s hour."
 msgid_plural "The link works once and expires in %(hours)s hours."
 msgstr[0] "El link funciona una vez y vence en %(hours)s hora."
 msgstr[1] "El link funciona una vez y vence en %(hours)s horas."
+msgstr[2] "El link funciona una vez y vence en %(hours)s horas."
 
 #: organizations/checks.py
 msgid "This model doesn't store which organization each row belongs to."

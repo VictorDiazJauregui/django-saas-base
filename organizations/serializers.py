@@ -1,9 +1,12 @@
+from datetime import datetime
+
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from .models import Invitation, Membership, Organization
-from .roles import OrganizationRole
+from .models import Invitation, Membership, Organization, OrganizationApiKey
+from .roles import ORGANIZATION_API_KEY_ROLES, OrganizationRole
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -95,3 +98,43 @@ class InvitationRegisterSerializer(InvitationTokenSerializer):
                 {"password": _("Password fields didn't match.")}
             )
         return attrs
+
+
+class OrganizationApiKeySerializer(serializers.ModelSerializer):
+    role = serializers.ChoiceField(choices=ORGANIZATION_API_KEY_ROLES)
+    created_by_email = serializers.EmailField(
+        source="created_by.email", read_only=True, allow_null=True, default=None
+    )
+
+    class Meta:
+        model = OrganizationApiKey
+        fields = [
+            "id",
+            "name",
+            "prefix",
+            "role",
+            "created_by_email",
+            "expires_at",
+            "last_used_at",
+            "revoked_at",
+            "created_at",
+        ]
+        read_only_fields = ["id", "prefix", "last_used_at", "revoked_at", "created_at"]
+
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError(
+                _("The expiry date must be in the future.")
+            )
+        return value
+
+
+# The key travels only in the answer to its creation; it is never stored, so it can't be listed.
+class CreatedOrganizationApiKeySerializer(OrganizationApiKeySerializer):
+    api_key = serializers.SerializerMethodField()
+
+    class Meta(OrganizationApiKeySerializer.Meta):
+        fields = [*OrganizationApiKeySerializer.Meta.fields, "api_key"]
+
+    def get_api_key(self, api_key: OrganizationApiKey) -> str:
+        return self.context["raw_key"]

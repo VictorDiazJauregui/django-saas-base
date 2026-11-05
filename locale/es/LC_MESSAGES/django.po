@@ -1080,3 +1080,82 @@ msgstr "Prefijo de la API key"
 #: security/models.py
 msgid "organization id"
 msgstr "id de la organización"
+
+#: organizations/organization_webhooks.py
+msgid "This organization has reached its limit of webhook endpoints."
+msgstr "Esta organización llegó a su límite de endpoints de webhook."
+
+#: organizations/organization_webhook_serializers.py
+msgid "Each event can be listed only once."
+msgstr "Cada evento puede figurar una sola vez."
+
+#: webhooks/subscriptions.py
+#, python-format
+msgid "An organization can't subscribe to: %(events)s."
+msgstr "Una organización no puede suscribirse a: %(events)s."
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Answers 404 unless TENANCY_ENABLED=True and WEBHOOKS_ENABLED=True."
+msgstr "Responde 404 salvo con TENANCY_ENABLED=True y WEBHOOKS_ENABLED=True."
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Never the secret. "
+msgstr "Nunca el secreto. "
+
+#: organizations/organization_webhook_api_docs.py
+msgid "List the webhook endpoints of the organization"
+msgstr "Lista los endpoints de webhook de la organización"
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Create a webhook endpoint of the organization"
+msgstr "Crea un endpoint de webhook de la organización"
+
+#: organizations/organization_webhook_api_docs.py
+msgid ""
+"It receives only the events of this organization, from "
+"WEBHOOK_ORGANIZATION_EVENTS. The answer is the only place the secret shows "
+"up besides a rotation. "
+msgstr ""
+"Recibe solo los eventos de esta organización, de "
+"WEBHOOK_ORGANIZATION_EVENTS. La respuesta es el único lugar donde aparece el "
+"secreto, además de una rotación. "
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Get a webhook endpoint of the organization"
+msgstr "Obtiene un endpoint de webhook de la organización"
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Change a webhook endpoint of the organization"
+msgstr "Cambia un endpoint de webhook de la organización"
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Delete a webhook endpoint of the organization"
+msgstr "Borra un endpoint de webhook de la organización"
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Its deliveries are deleted with it. "
+msgstr "Sus entregas se borran con él. "
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Deleted."
+msgstr "Borrado."
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Rotate the secret of a webhook endpoint"
+msgstr "Rota el secreto de un endpoint de webhook"
+
+#: organizations/organization_webhook_api_docs.py
+msgid ""
+"The old secret stops signing at once, pending retries included. The answer "
+"is the only place the new one shows up. "
+msgstr ""
+"El secreto viejo deja de firmar en el acto, también en los reintentos "
+"pendientes. La respuesta es el único lugar donde aparece el nuevo. "
+
+#: organizations/organization_webhook_api_docs.py
+msgid "List the deliveries of a webhook endpoint"
+msgstr "Lista las entregas de un endpoint de webhook"
+
+#: organizations/organization_webhook_api_docs.py
+msgid "Newest first, read only. "
+msgstr "De la más nueva a la más vieja, solo lectura. "

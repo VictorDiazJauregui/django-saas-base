@@ -374,7 +374,7 @@ Guías oficiales: [recorrido por Docker Desktop](https://docs.docker.com/desktop
 | `ANYMAIL_*` | Django | Configuración de ese proveedor, como `ANYMAIL_RESEND_API_KEY` | — |
 | `DEFAULT_FROM_EMAIL` | Django | Remitente de los emails que manda el proyecto | `webmaster@localhost` |
 | `ALLOW_PUBLIC_REGISTRATION` | Django | `False` cierra `POST /api/v1/auth/register/` con `403`. Ver [Registro público](#registro-público) | `True` |
-| `API_KEYS_ENABLED` | Django | `True` acepta `Authorization: Api-Key <key>`, con keys creadas en el admin. Ver [API keys](#api-keys) | `False` |
+| `API_KEYS_ENABLED` | Django | `True` acepta `Authorization: Api-Key <key>`, con keys creadas en el admin. Con `TENANCY_ENABLED=True` también enciende las keys de organización. Ver [API keys](#api-keys) | `False` |
 | `TOTP_ENABLED` | Django | `True` deja a los usuarios sumar un segundo factor con una app de autenticación. Ver [Autenticación en dos pasos](#autenticación-en-dos-pasos) | `False` |
 | `TOTP_ENCRYPTION_KEY` | Django | Clave Fernet que cifra los secretos del segundo factor. Obligatoria con `TOTP_ENABLED=True`; no se cambia nunca | *(vacía)* |
 | `TOTP_ISSUER` | Django | Nombre que muestra la app de autenticación junto a la cuenta | *(vacía)* |
@@ -1012,6 +1012,7 @@ Para otro servidor que llama a la API sin que inicie sesión una persona: un sis
 - Para revocar, seleccioná las keys en el admin y ejecutá **Revocar las API keys seleccionadas**. Rige desde el próximo request. Una key no se edita: se crea una nueva y se revoca la vieja.
 - El admin muestra cuándo se usó cada key por última vez. La auditoría registra los requests a nombre del usuario de la key, y el header nunca se guarda.
 - Con `API_KEYS_ENABLED=False`, un header `Api-Key` se ignora y el request recibe el `401` de siempre. Las keys quedan en la base y vuelven a funcionar si se enciende de nuevo.
+- Con multi-tenancy encendido, una key también puede ser de una organización y no de un usuario: ver [API keys de organización](#api-keys-de-organización).
 
 ### CORS
 
@@ -1172,17 +1173,17 @@ Una organización se crea con `POST /api/v1/organizations/` (quien la crea queda
 
 ### API de organizaciones y miembros
 
-Todas las rutas piden `Authorization: Bearer <access>` (o una API key) y responden `404` con `TENANCY_ENABLED=False`.
+Todas las rutas piden `Authorization: Bearer <access>` (o una API key personal) y responden `404` con `TENANCY_ENABLED=False`. `<organization>` es el id o el slug.
 
 | Método y ruta | Quién | Qué hace |
 |---|---|---|
 | `GET /api/v1/organizations/` | Cualquier usuario | Las organizaciones del usuario, paginadas, cada una con su `role` |
 | `POST /api/v1/organizations/` | Cualquier usuario | Crea una con `name` y un `slug` opcional (si no viene, sale del nombre, con `-2`, `-3`… si está ocupado). `201` |
-| `GET /api/v1/organizations/<organization_id>/` | member | `id`, `name`, `slug`, `role` y `created_at` |
-| `PATCH /api/v1/organizations/<organization_id>/` | admin | Cambia `name` y `slug`. Un slug en uso: `400` en `fields.slug` |
-| `GET /api/v1/organizations/<organization_id>/members/` | member | Miembros, paginados: `id` de la membresía, `user` (`id`, `email`, `first_name`, `last_name`), `role` y `created_at` |
-| `PATCH /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin | Cambia `role` |
-| `DELETE /api/v1/organizations/<organization_id>/members/<membership_id>/` | admin, o el propio miembro para salir | `204` |
+| `GET /api/v1/organizations/<organization>/` | member | `id`, `name`, `slug`, `role` y `created_at` |
+| `PATCH /api/v1/organizations/<organization>/` | admin | Cambia `name` y `slug`. Un slug en uso: `400` en `fields.slug` |
+| `GET /api/v1/organizations/<organization>/members/` | member | Miembros, paginados: `id` de la membresía, `user` (`id`, `email`, `first_name`, `last_name`), `role` y `created_at` |
+| `PATCH /api/v1/organizations/<organization>/members/<membership_id>/` | admin | Cambia `role` |
+| `DELETE /api/v1/organizations/<organization>/members/<membership_id>/` | admin, o el propio miembro para salir | `204` |
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/organizations/ \
@@ -1202,15 +1203,28 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/ 
 - Un cambio que dejaría la organización sin owners recibe `409` con `code` `last_owner`. Para salir siendo el último owner, primero hacé owner a otra persona.
 - Las organizaciones se borran solo desde el admin, que lista todo lo que se va con ellas antes de confirmar.
 
+### Id o slug en la ruta
+
+`<organization>` en cada ruta bajo `/api/v1/organizations/` es el `id` de la organización o su `slug`: `/api/v1/organizations/acme/members/` responde igual que `/api/v1/organizations/3f2b…/members/`, con los mismos permisos. Un slug que no existe o de una organización de la que el usuario no es miembro recibe el mismo `404` con `code` `organization_not_found` que un id.
+
+- Un slug usa minúsculas, dígitos, `-` y `_`, y no puede tener forma de UUID (con o sin guiones), así nunca se confunde con un id. Si no: `400` en `fields.slug`. Un slug armado desde el nombre nunca tiene esa forma.
+- `id` es el identificador estable y el que devuelve la API. Cambiar el slug rompe todos los links guardados con el viejo: desde ese momento responden `404`.
+- El backend no lee el dominio. Un frontend con subdominios (`acme.tuapp.com`) lee la primera parte del host y la pone en la ruta; el subdominio no da acceso por sí solo, la membresía se valida como siempre:
+
+  ```js
+  const organization = window.location.hostname.split(".")[0];
+  fetch(`/api/v1/organizations/${organization}/members/`, { headers });
+  ```
+
 ### Invitaciones
 
 Un admin invita a alguien por email; el email apunta a `FRONTEND_INVITATION_URL`, con `{token}` reemplazado. Esa página del frontend le devuelve el token a la API.
 
 | Método y ruta | Quién | Qué hace |
 |---|---|---|
-| `GET /api/v1/organizations/<organization_id>/invitations/` | admin | Invitaciones pendientes, sin su token |
-| `POST /api/v1/organizations/<organization_id>/invitations/` | admin | `email` y `role`. Manda el email. `201` |
-| `DELETE /api/v1/organizations/<organization_id>/invitations/<invitation_id>/` | admin | La revoca. `204` |
+| `GET /api/v1/organizations/<organization>/invitations/` | admin | Invitaciones pendientes, sin su token |
+| `POST /api/v1/organizations/<organization>/invitations/` | admin | `email` y `role`. Manda el email. `201` |
+| `DELETE /api/v1/organizations/<organization>/invitations/<invitation_id>/` | admin | La revoca. `204` |
 | `POST /api/v1/invitations/lookup/` | Público | `token` → `organization`, `email`, `role`, `expires_at` y `account_exists` |
 | `POST /api/v1/invitations/accept/` | El usuario invitado, logueado | `token`. Responde como un ítem de `GET /organizations/` |
 | `POST /api/v1/invitations/register/` | Público | `token`, `password`, `password2`, `first_name`, `last_name`. Crea la cuenta y la suma. `201` |
@@ -1223,6 +1237,46 @@ Un admin invita a alguien por email; el email apunta a `FRONTEND_INVITATION_URL`
 - El token funciona una vez y vence a las `TENANCY_INVITATION_TIMEOUT_HOURS` (72 por defecto). La base guarda solo su hash SHA-256, y la auditoría lo guarda como `[REDACTED]`.
 - Las rutas públicas cuentan requests por IP con `THROTTLE_INVITATION_RATE` (`10/h`).
 - El admin lista las invitaciones con su estado y las revoca con **Revocar las invitaciones seleccionadas**. Solo se crean desde la API, que manda el email.
+
+### API keys de organización
+
+Keys que pertenecen a una organización y no a una persona: con una se conecta un ERP o un sistema contable, y sigue andando cuando quien la creó deja la organización. Necesitan `TENANCY_ENABLED=True` y `API_KEYS_ENABLED=True`; con cualquiera apagado, las rutas responden `404` y la key `401`.
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/organizations/<organization>/api-keys/` | admin | Keys activas y revocadas: `id`, `name`, `prefix`, `role`, `created_by_email`, `expires_at`, `last_used_at`, `revoked_at`, `created_at` |
+| `POST /api/v1/organizations/<organization>/api-keys/` | admin | `name`, `role` (`admin` o `member`, nunca `owner`) y un `expires_at` futuro opcional. `201` con los mismos campos más `api_key` |
+| `DELETE /api/v1/organizations/<organization>/api-keys/<key_id>/` | admin | La revoca; el registro queda. `204` |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/organizations/acme/api-keys/ \
+  -H "Authorization: Bearer <access>" -H "Content-Type: application/json" \
+  -d '{"name": "ERP", "role": "member"}'
+```
+
+En PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/organizations/acme/api-keys/ `
+  -Headers @{ Authorization = "Bearer <access>" } -ContentType "application/json" `
+  -Body '{"name": "ERP", "role": "member"}'
+```
+
+- `api_key` aparece una sola vez, en esa respuesta. La base guarda solo su hash SHA-256 y el prefijo (`org_` y 12 caracteres), y la auditoría la guarda como `[REDACTED]`.
+- El otro sistema la manda como `Authorization: Api-Key <key>`, el mismo header que una key personal.
+- Una key sirve solo en las rutas de su organización que usan `IsOrganizationMember`, `HasOrganizationRole` u `OrganizationScopedViewSet`, con su rol. En otra organización: `404` con `code` `organization_not_found`.
+- Nunca gestiona el módulo: la organización, los miembros, las invitaciones y las keys responden `403` con `code` `organization_api_key_not_allowed`, también para leer. Cualquier otra ruta que pide una persona (`IsAuthenticated`, `/api/v1/auth/me/`) responde `403` con `code` `permission_denied`.
+- Una key revocada, vencida o incorrecta recibe el mismo `401` que una personal: `{"code": "invalid_api_key", "detail": "Invalid API key.", "fields": {}}`.
+- El admin las lista en **API keys de organización**, las busca por prefijo, las crea (la página siguiente muestra la key una vez) y las revoca con **Revocar las API keys seleccionadas**. `last_used_at` se escribe como mucho una vez cada 5 minutos.
+- La auditoría registra lo que hace una key con `api_key_prefix` y `organization_id`, sin usuario.
+
+| | Key personal | Key de organización |
+|---|---|---|
+| Pertenece a | Un usuario | Una organización |
+| La crea | Staff, en el admin | Un admin de la organización, por la API, o staff en el admin |
+| Actúa como | Su usuario, con todos sus permisos | Ella misma, con un rol en una organización |
+| Deja de andar cuando | Se desactiva su usuario | Se revoca o vence |
+| Interruptores | `API_KEYS_ENABLED` | `TENANCY_ENABLED` y `API_KEYS_ENABLED` |
 
 ### Eventos de webhooks
 
@@ -1291,14 +1345,14 @@ router = SimpleRouter()
 router.register("projects", ProjectViewSet, basename="project")
 
 urlpatterns += [
-    path("api/v1/organizations/<uuid:organization_id>/", include(router.urls)),
+    path("api/v1/organizations/<organization:organization_id>/", include(router.urls)),
 ]
 ```
 
-- La organización sale de la URL: `GET /api/v1/organizations/<organization_id>/projects/`. El parámetro de la URL se tiene que llamar `organization_id`.
+- La organización sale de la URL: `GET /api/v1/organizations/<organization>/projects/`, por id o por slug. Usá el conversor `organization` (`<uuid:...>` rechazaría el slug) y llamá al parámetro `organization_id`.
 - El listado, el detalle, la edición y el borrado solo ven las filas de esa organización. Una fila de otra da `404`, como si no existiera.
 - El alta asigna la organización de la URL. Un `organization` en el body se ignora, también al editar, así que una fila no se puede mover a otra organización.
-- La vista recibe `request.organization` y `request.membership` (con su `role`) una vez que pasó el permiso.
+- La vista recibe `request.organization` y `request.organization_role` una vez que pasó el permiso, y `request.membership` si es una persona. Con una [API key de organización](#api-keys-de-organización) `request.membership` es `None`, `request.user` no es un usuario y la key está en `request.auth`: no guardes `request.user` en una fila sin revisarlo.
 - `OrganizationScopedMixin` hace lo mismo en una vista genérica propia (`ListCreateAPIView` y similares).
 
 ### Permisos de una organización
@@ -1312,7 +1366,7 @@ urlpatterns += [
 | Request | Respuesta |
 |---|---|
 | Sin token | `401` |
-| Una organización que no existe, un id que no es un UUID o una organización de la que el usuario no es miembro | `404` con `code` `organization_not_found`. La misma respuesta para los tres, así nadie averigua qué organizaciones existen |
+| Una organización que no existe, una referencia que no es ni id ni slug, o una organización de la que el usuario no es miembro | `404` con `code` `organization_not_found`. La misma respuesta para los tres, así nadie averigua qué organizaciones existen |
 | Un miembro sin el rol | `403` con `code` `permission_denied` |
 | Un superusuario que no es miembro | `404`: el staff trabaja las organizaciones desde el admin |
 | `TENANCY_ENABLED=False` | `404` |

@@ -93,9 +93,9 @@ prompt-toolkit==3.0.53
     # via ipython
 psutil==7.2.2 ; sys_platform != 'android' and sys_platform != 'cygwin' and sys_platform != 'emscripten'
     # via ipython
-psycopg==3.3.6
+psycopg==3.3.9
     # via saas
-psycopg-binary==3.3.6 ; implementation_name != 'pypy'
+psycopg-binary==3.3.9 ; implementation_name != 'pypy'
     # via psycopg
 ptyprocess==0.7.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via pexpect

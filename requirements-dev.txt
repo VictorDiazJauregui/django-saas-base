@@ -22,10 +22,10 @@ click==8.5.0
     # via black
 colorama==0.4.6 ; sys_platform == 'win32'
     # via ipython
-coverage==7.17.0
+coverage==7.17.2
 cryptography==50.0.2
     # via saas
-django==5.2.18
+django==5.2.19
     # via
     #   django-anymail
     #   django-axes
@@ -38,7 +38,7 @@ django==5.2.18
     #   saas
 django-anymail==15.2
     # via saas
-django-axes==8.3.1
+django-axes==9.0.0
     # via saas
 django-cors-headers==4.9.0
     # via saas
@@ -66,7 +66,7 @@ idna==3.20
     #   requests
 inflection==0.5.1
     # via drf-spectacular
-ipython==9.17.1
+ipython==9.18.1
 ipython-pygments-lexers==1.1.1
     # via ipython
 jedi==0.20.0
@@ -91,11 +91,11 @@ platformdirs==4.12.2
     # via black
 prompt-toolkit==3.0.53
     # via ipython
-psutil==7.2.2 ; sys_platform != 'cygwin' and sys_platform != 'emscripten'
+psutil==7.2.2 ; sys_platform != 'android' and sys_platform != 'cygwin' and sys_platform != 'emscripten'
     # via ipython
-psycopg==3.3.6
+psycopg==3.3.9
     # via saas
-psycopg-binary==3.3.6 ; implementation_name != 'pypy'
+psycopg-binary==3.3.9 ; implementation_name != 'pypy'
     # via psycopg
 ptyprocess==0.7.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via pexpect
@@ -125,7 +125,7 @@ rpds-py==2026.9.1
     # via
     #   jsonschema
     #   referencing
-ruff==0.17.3
+ruff==0.17.4
 sqlparse==0.6.0
     # via django
 stack-data==0.6.3
